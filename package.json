@@ -17,6 +17,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "7zip-bin": "^5.2.0",
     "iconv-lite": "^0.7.3"
   },
   "build": {
@@ -31,8 +32,13 @@
       "package.json",
       "!**/*.map"
     ],
+    "asarUnpack": [
+      "node_modules/7zip-bin/**"
+    ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "nsis": {

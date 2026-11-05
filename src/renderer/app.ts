@@ -1,9 +1,10 @@
 import { Panel } from './panel.js';
-import { fmtBytes } from './util.js';
+import { fmtBytes, basename, joinPath } from './util.js';
 import { Drive, Entry } from './types.js';
 import {
   dialogs, promptDialog, copyMoveDialog, deleteDialog, progressDialog,
   conflictDialog, messageDialog, viewerDialog, ProgressUi,
+  archiveCreateDialog, archiveExtractDialog, archiveBusyDialog,
 } from './dialogs.js';
 
 type OpEvent = {
@@ -170,14 +171,14 @@ function saveView(): void {
 
 function buildChrome(): void {
   const menus: Array<[string, Array<[string, () => void]>]> = [
-    ['Файл', [['Просмотр  F3', doView], ['Правка  F4', editCurrent], ['Копирование  F5', doCopy], ['Перемещение  F6', doMove], ['Создать каталог  F7', doMkdir], ['Удаление  F8', () => doDelete(false)], ['Выход  Alt+F4', () => window.close()]]],
+    ['Файл', [['Просмотр  F3', doView], ['Правка  F4', editCurrent], ['Копирование  F5', doCopy], ['Перемещение  F6', doMove], ['Создать каталог  F7', doMkdir], ['Удаление  F8', () => doDelete(false)], ['Упаковать  Alt+F5', doPack], ['Распаковать  Alt+F9', doExtract], ['Выход  Alt+F4', () => window.close()]]],
     ['Выделение', [['Выделить всё  Ctrl+A', () => panel().selectAll()], ['Снять выделение  Esc', () => panel().clearSelection()], ['Инвертировать  Ctrl+Num *', () => panel().invertSelection()]]],
     ['Навигация', [['Назад  Alt+←', () => panel().goHistory(-1)], ['Вперёд  Alt+→', () => panel().goHistory(1)], ['На уровень выше  Backspace', () => panel().goUp()], ['Обновить  Ctrl+R', () => { void panel().refresh(); }], ['Поменять панели  Ctrl+U', swapPanels]]],
     ['Сеть', [['Список дисков  Alt+F1', () => void openDriveMenu(panel(0), panel(0).driveBtnEl())], ['Список дисков  Alt+F2', () => void openDriveMenu(panel(1), panel(1).driveBtnEl())]]],
     ['Вид', [['Сортировать по имени', () => sortActive('name')], ['Сортировать по размеру', () => sortActive('size')], ['Сортировать по дате', () => sortActive('date')]]],
     ['Вкладки', [['Новая вкладка', () => panel().newTab()]]],
     ['Конфигурация', [['Параметры отображения', () => void messageDialog('POSCommander', 'Двухпанельный режим · сортировка по имени, расширению, размеру и дате.')]]],
-    ['Инструменты', [['Быстрый просмотр  F3', doView], ['Переименовать  Shift+F6', doRename]]],
+    ['Инструменты', [['Быстрый просмотр  F3', doView], ['Переименовать  Shift+F6', doRename], ['Упаковать  Alt+F5', doPack], ['Распаковать  Alt+F9', doExtract]]],
   ];
   const bar = document.getElementById('menubar')!;
   for (const [label, items] of menus) {
@@ -200,6 +201,7 @@ function buildChrome(): void {
     ['🔍', 'Поиск по имени', () => { const input = document.querySelector(`#panel${app.active} .path-input`) as HTMLInputElement; input.focus(); }],
     ['📦', 'Копировать', doCopy], ['➡', 'Переместить', doMove], ['🗑', 'Удалить', () => doDelete(false)],
     ['📁', 'Создать папку', doMkdir], ['✎', 'Переименовать', doRename], ['⇄', 'Поменять панели', swapPanels],
+    ['🗜', 'Упаковать файлы (Alt+F5)', doPack], ['📦', 'Распаковать архив (Alt+F9)', doExtract],
   ];
   const toolbar = document.getElementById('toolbar')!;
   for (const [icon, title, fn] of tools) {
@@ -222,6 +224,47 @@ function buildChrome(): void {
 
 function editCurrent(): void {
   const cur = panel().currentPath(); if (cur) void window.pos.openPath(cur);
+}
+
+function doPack(): void {
+  const sourcePanel = panel();
+  const srcs = sourcePanel.selectedPaths();
+  if (!srcs.length) return;
+  const baseName = srcs.length === 1 ? basename(srcs[0]) : 'Архив';
+  const defaultPath = joinPath(otherPanel().path, baseName + '.zip');
+  void archiveCreateDialog(defaultPath, srcs.length === 1 ? `«${baseName}»` : `${srcs.length} объектов`).then(async choice => {
+    if (!choice) return;
+    const ext = `.${choice.format}`;
+    const stem = choice.archivePath.replace(/\.(zip|7z|tar)$/i, '');
+    const rawPath = stem + ext;
+    const archivePath = sourcePanel.resolvePathInput(rawPath);
+    const busy = archiveBusyDialog('Создание архива');
+    const error = await window.pos.createArchive(srcs, archivePath, choice.format, sourcePanel.path).catch(e => String(e));
+    busy.close();
+    void sourcePanel.refresh(); void otherPanel().refresh();
+    if (error) void messageDialog('Ошибка упаковки', escapeHtml(error));
+  });
+}
+
+function doExtract(): void {
+  const sourcePanel = panel();
+  const selected = sourcePanel.selectedPaths();
+  const archives = selected.filter(p => /\.(zip|7z|tar|gz|tgz|bz2|xz|wim|iso|cab|rar)$/i.test(p));
+  if (!archives.length) {
+    void messageDialog('Распаковка архивов', 'Выберите архив (ZIP, 7z, TAR, GZIP, CAB, ISO или RAR).');
+    return;
+  }
+  const defaultDest = otherPanel().path;
+  const summary = archives.length === 1 ? `«${basename(archives[0])}»` : `${archives.length} архивов`;
+  void archiveExtractDialog(defaultDest, summary).then(async dest => {
+    if (!dest) return;
+    const destination = otherPanel().resolvePathInput(dest);
+    const busy = archiveBusyDialog('Распаковка архивов');
+    const error = await window.pos.extractArchives(archives, destination).catch(e => String(e));
+    busy.close();
+    void sourcePanel.refresh(); void otherPanel().refresh();
+    if (error) void messageDialog('Ошибка распаковки', escapeHtml(error));
+  });
 }
 function copyTo(target: 0 | 1): void {
   const src = panel().selectedPaths(); if (src.length) startOp('copy', src, panel(target).path);
@@ -548,6 +591,8 @@ function onKeyDown(ev: KeyboardEvent): void {
     void openDriveMenu(target, target.driveBtnEl());
     return;
   }
+  if (ev.altKey && key === 'F5') { ev.preventDefault(); doPack(); return; }
+  if (ev.altKey && key === 'F9') { ev.preventDefault(); doExtract(); return; }
   if (ev.altKey && key === 'ArrowLeft') { ev.preventDefault(); panel().goHistory(-1); return; }
   if (ev.altKey && key === 'ArrowRight') { ev.preventDefault(); panel().goHistory(1); return; }
 

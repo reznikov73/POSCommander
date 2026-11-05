@@ -21,6 +21,8 @@ export interface PosApi {
   list(path: string): Promise<{ path: string; entries: Entry[]; error?: string }>;
   directorySize(path: string): Promise<number>;
   fileIcons(paths: string[]): Promise<string[]>;
+  createArchive(srcs: string[], archivePath: string, format: 'zip' | '7z' | 'tar', cwd: string): Promise<string>;
+  extractArchives(archives: string[], destination: string): Promise<string>;
   statfs(path: string): Promise<{ total: number; free: number; error?: string }>;
   drives(): Promise<Drive[]>;
   mkdir(path: string): Promise<string>;

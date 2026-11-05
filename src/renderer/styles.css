@@ -296,6 +296,11 @@ html, body {
   outline: none;
 }
 .dlg-input:focus { border-color: var(--accent); }
+.dlg-select { width: 100%; margin-top: 4px; padding: 4px 6px; font: inherit; border: 1px solid var(--border); background: #fff; }
+.archive-format-label { display: block; margin-top: 10px; }
+.archive-busy { display: flex; align-items: center; gap: 12px; min-width: 250px; padding: 4px 0; }
+.archive-spinner { width: 20px; height: 20px; border: 2px solid #d4d4d4; border-top-color: var(--accent); border-radius: 50%; animation: archive-spin .8s linear infinite; }
+@keyframes archive-spin { to { transform: rotate(360deg); } }
 
 .dlg-hint { margin-top: 8px; font-size: 11px; color: #777; }
 

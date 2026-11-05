@@ -5,6 +5,7 @@ import * as fsp from 'fs/promises';
 import { execFile, spawn } from 'child_process';
 import * as fsservice from './fsservice';
 import { startOperation, cancelOperation, resolveConflict, OpKind, ConflictAnswer } from './ops';
+import { createArchive, extractArchives, ArchiveFormat } from './archives';
 
 let mainWindow: BrowserWindow | null = null;
 const fileIconCache = new Map<string, string>();
@@ -173,6 +174,10 @@ ipcMain.handle('fs:fileIcons', async (_e, paths: string[]) => {
 });
 ipcMain.handle('fs:statfs', (_e, p: string) => fsservice.statFs(p));
 ipcMain.handle('fs:drives', () => fsservice.getDrives());
+ipcMain.handle('archive:create', (_e, args: { srcs: string[]; archivePath: string; format: ArchiveFormat; cwd: string }) =>
+  createArchive(args.srcs, args.archivePath, args.format, args.cwd).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:extract', (_e, args: { archives: string[]; destination: string }) =>
+  extractArchives(args.archives, args.destination).then(() => '').catch((e: any) => e?.message ?? String(e)));
 ipcMain.handle('fs:mkdir', async (_e, p: string) => {
   try { await fsservice.mkdirRecursive(p); return ''; }
   catch (e: any) { return fsservice.describeFsError(e, p); }

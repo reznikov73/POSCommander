@@ -5,6 +5,8 @@ export interface PosApi {
   list(path: string): Promise<{ path: string; entries: PosEntry[]; error?: string }>;
   directorySize(path: string): Promise<number>;
   fileIcons(paths: string[]): Promise<string[]>;
+  createArchive(srcs: string[], archivePath: string, format: 'zip' | '7z' | 'tar', cwd: string): Promise<string>;
+  extractArchives(archives: string[], destination: string): Promise<string>;
   statfs(path: string): Promise<{ total: number; free: number; error?: string }>;
   drives(): Promise<PosDrive[]>;
   mkdir(path: string): Promise<string>;
@@ -27,6 +29,8 @@ const api: PosApi = {
   list: (p) => ipcRenderer.invoke('fs:list', p),
   directorySize: (p) => ipcRenderer.invoke('fs:directorySize', p),
   fileIcons: (paths) => ipcRenderer.invoke('fs:fileIcons', paths),
+  createArchive: (srcs, archivePath, format, cwd) => ipcRenderer.invoke('archive:create', { srcs, archivePath, format, cwd }),
+  extractArchives: (archives, destination) => ipcRenderer.invoke('archive:extract', { archives, destination }),
   statfs: (p) => ipcRenderer.invoke('fs:statfs', p),
   drives: () => ipcRenderer.invoke('fs:drives'),
   mkdir: (p) => ipcRenderer.invoke('fs:mkdir', p),

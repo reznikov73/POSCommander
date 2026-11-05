@@ -165,6 +165,80 @@ export function copyMoveDialog(kind: 'copy' | 'move', defaultDest: string, summa
   });
 }
 
+export type ArchiveFormat = 'zip' | '7z' | 'tar';
+export interface ArchiveCreateChoice { archivePath: string; format: ArchiveFormat }
+
+export function archiveCreateDialog(defaultPath: string, summary: string): Promise<ArchiveCreateChoice | null> {
+  return new Promise(resolve => {
+    const { root, body } = frame('Упаковка файлов', `
+      <div class="dlg-label">Добавить в архив: ${escapeHtml(summary)}</div>
+      <label class="dlg-label" for="archive-path">Имя архива:</label>
+      <input class="dlg-input" id="archive-path" spellcheck="false" />
+      <label class="dlg-label archive-format-label" for="archive-format">Формат:</label>
+      <select class="dlg-select" id="archive-format">
+        <option value="zip">ZIP</option><option value="7z">7-Zip</option><option value="tar">TAR</option>
+      </select>
+      <div class="dlg-hint">Можно указать полный путь. Содержимое папок будет добавлено рекурсивно.</div>
+    `);
+    const input = body.querySelector('#archive-path') as HTMLInputElement;
+    const select = body.querySelector('#archive-format') as HTMLSelectElement;
+    input.value = defaultPath;
+    let settled = false;
+    const finish = (value: ArchiveCreateChoice | null) => {
+      if (settled) return;
+      settled = true;
+      const item = dialogs.stack.find(x => x.el === root);
+      if (item) dialogs.closeItem(item);
+      resolve(value);
+    };
+    body.appendChild(buttonRow([
+      { label: 'Упаковать', primary: true, onClick: () => {
+        const archivePath = input.value.trim();
+        if (archivePath) finish({ archivePath, format: select.value as ArchiveFormat });
+      } },
+      { label: 'Отмена', onClick: () => finish(null) },
+    ]));
+    root.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter') { ev.preventDefault(); const archivePath = input.value.trim(); if (archivePath) finish({ archivePath, format: select.value as ArchiveFormat }); }
+    });
+    dialogs.open(root, { onClose: () => finish(null) });
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+  });
+}
+
+export function archiveExtractDialog(defaultDest: string, summary: string): Promise<string | null> {
+  return new Promise(resolve => {
+    const { root, body } = frame('Распаковка архивов', `
+      <div class="dlg-label">Распаковать: ${escapeHtml(summary)}</div>
+      <label class="dlg-label" for="archive-dest">Каталог назначения:</label>
+      <input class="dlg-input" id="archive-dest" spellcheck="false" />
+      <div class="dlg-hint">Существующие файлы пропускаются.</div>
+    `);
+    const input = body.querySelector('#archive-dest') as HTMLInputElement;
+    input.value = defaultDest;
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      const item = dialogs.stack.find(x => x.el === root);
+      if (item) dialogs.closeItem(item);
+      resolve(value);
+    };
+    body.appendChild(buttonRow([
+      { label: 'Распаковать', primary: true, onClick: () => { if (input.value.trim()) finish(input.value.trim()); } },
+      { label: 'Отмена', onClick: () => finish(null) },
+    ]));
+    root.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); if (input.value.trim()) finish(input.value.trim()); } });
+    dialogs.open(root, { onClose: () => finish(null) });
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+  });
+}
+
+export function archiveBusyDialog(title: string): DialogHandle {
+  const { root, body } = frame(title, '<div class="archive-busy"><span class="archive-spinner"></span><span>Подождите…</span></div>');
+  return dialogs.open(root, { escClosable: false });
+}
+
 // --------------------------------------------------------------
 
 /** Подтверждение удаления. 'trash' | 'perm' | null */
