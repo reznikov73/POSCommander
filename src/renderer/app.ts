@@ -39,8 +39,6 @@ const COMMAND_HISTORY_KEY = 'poscommander.commandHistory';
 let commandHistory: string[] = [];
 let commandHistoryIndex = 0;
 let commandDraft = '';
-let commandSuggestionVersion = 0;
-let commandSuggestionTimer = 0;
 
 // ---------- Инициализация ----------
 
@@ -80,13 +78,13 @@ function init(): void {
   commandHistory = readCommandHistory();
   commandHistoryIndex = commandHistory.length;
   renderCommandSuggestions();
-  command.addEventListener('focus', () => { void updateCommandSuggestions(); });
-  command.addEventListener('input', () => {
-    window.clearTimeout(commandSuggestionTimer);
-    commandSuggestionTimer = window.setTimeout(() => { void updateCommandSuggestions(); }, 180);
-  });
   command.addEventListener('keydown', ev => {
     ev.stopPropagation();
+    if (ev.key === 'Tab') {
+      ev.preventDefault();
+      void completeCommand(command);
+      return;
+    }
     if (ev.key === 'Escape') { command.value = ''; command.blur(); }
     if (ev.ctrlKey && ev.key === 'ArrowUp') {
       ev.preventDefault();
@@ -134,19 +132,23 @@ function rememberCommand(value: string): void {
   try { localStorage.setItem(COMMAND_HISTORY_KEY, JSON.stringify(commandHistory)); } catch { /* storage may be unavailable */ }
 }
 
-function renderCommandSuggestions(fileNames: string[] = []): void {
+function renderCommandSuggestions(): void {
   const list = document.getElementById('command-history')!;
-  const values = [...commandHistory, ...fileNames].filter((v, i, all) => v && all.indexOf(v) === i);
-  list.replaceChildren(...values.map(value => {
+  list.replaceChildren(...commandHistory.map(value => {
     const option = document.createElement('option'); option.value = value; return option;
   }));
 }
 
-async function updateCommandSuggestions(): Promise<void> {
-  const version = ++commandSuggestionVersion;
+async function completeCommand(input: HTMLInputElement): Promise<void> {
+  const value = input.value.trim();
+  if (!value) return;
+  const prefix = value.toLocaleLowerCase('ru');
+  const historyMatch = commandHistory.find(item => item.toLocaleLowerCase('ru').startsWith(prefix));
+  if (historyMatch) { input.value = historyMatch; return; }
   const result = await window.pos.list(panel().path);
-  if (version !== commandSuggestionVersion || result.error) return;
-  renderCommandSuggestions(result.entries.map(e => e.name));
+  if (result.error) return;
+  const match = result.entries.find(entry => entry.name.toLocaleLowerCase('ru').startsWith(prefix));
+  if (match) input.value = match.name;
 }
 
 function readSavedView(): { paths: [string, string]; active: 0 | 1 } {
