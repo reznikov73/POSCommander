@@ -1,0 +1,46 @@
+{
+  "name": "poscommander",
+  "productName": "POSCommander",
+  "version": "0.1.0",
+  "description": "Двухпанельный файловый менеджер в духе Total Commander",
+  "main": "dist/main/main.js",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json && node -e \"const fs=require('fs');fs.mkdirSync('dist/renderer',{recursive:true});fs.copyFileSync('src/renderer/index.html','dist/renderer/index.html');fs.copyFileSync('src/renderer/styles.css','dist/renderer/styles.css');console.log('static copied')\"",
+    "start": "npm run build && electron .",
+    "build:exe": "npm run build && node scripts/build-exe.cjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "electron": "^45.2.1",
+    "electron-builder": "^26.18.0",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "iconv-lite": "^0.7.3"
+  },
+  "build": {
+    "appId": "ru.poscommander.app",
+    "productName": "POSCommander",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "win": {
+      "target": ["nsis"],
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "perMachine": false
+    }
+  }
+}

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+  <title>POSCommander</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="main">
+    <div id="menubar" role="menubar"></div>
+    <div id="toolbar" aria-label="Панель инструментов"></div>
+    <div id="panels">
+      <div id="panel0"></div>
+      <div id="midbar" aria-label="Операции"></div>
+      <div id="panel1"></div>
+    </div>
+    <div id="commandbar"><span id="command-prompt"></span><input id="command-input" spellcheck="false" autocomplete="off" /></div>
+    <div id="statusbar">
+      <div id="status-left"></div>
+      <div id="status-right"></div>
+    </div>
+    <div id="fkeys"></div>
+  </div>
+  <div id="overlay-root"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
