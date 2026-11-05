@@ -4,6 +4,11 @@ import { ROW_H, fmtBytes, fmtDate, naturalCmp, parentOf, joinPath, isRoot, norma
 export interface PanelSort { by: SortBy; asc: boolean }
 
 const SORT_LABELS: Record<SortBy, string> = { name: 'Имя', ext: 'Расш.', size: 'Размер', date: 'Дата' };
+const FOLDER_ICON = '<svg class="folder-icon" viewBox="0 0 16 16" aria-hidden="true">' +
+  '<path d="M1 3.1h5l1.5 1.7H15v8.1H1z" fill="#e8ad27" stroke="#9a741b" stroke-width=".8" />' +
+  '<path d="M1.5 5.4h13l-1 6.8H1.5z" fill="#ffd765" stroke="#c19225" stroke-width=".6" />' +
+  '<path d="M2 6h11.8" stroke="#fff0ae" stroke-width=".7" />' +
+  '</svg>';
 const PARENT_FOLDER_ICON = '<svg class="parent-folder-icon" viewBox="0 0 16 16" aria-hidden="true">' +
   '<path d="M1 3.5h5l1.4 1.7H15v8.2H1z" fill="#d8d8d8" stroke="#777" />' +
   '<path d="M8 12V7.5M6.1 9.4 8 7.5l1.9 1.9" fill="none" stroke="#333" stroke-width="1.2" stroke-linecap="square" />' +
@@ -380,6 +385,7 @@ export class Panel {
   }
 
   private iconHtml(e: Entry): string {
+    if (e.isDir) return FOLDER_ICON;
     return e.icon
       ? `<img src="${escapeAttr(e.icon)}" alt="" />`
       : escapeHtml(iconFor(e));
