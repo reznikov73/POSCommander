@@ -35,6 +35,12 @@ const app = {
   progressUi: null as ProgressUi | null,
   progressOpId: -1,
 };
+const COMMAND_HISTORY_KEY = 'poscommander.commandHistory';
+let commandHistory: string[] = [];
+let commandHistoryIndex = 0;
+let commandDraft = '';
+let commandSuggestionVersion = 0;
+let commandSuggestionTimer = 0;
 
 // ---------- Инициализация ----------
 
@@ -71,12 +77,34 @@ function init(): void {
     updateStatus();
   })();
   const command = document.getElementById('command-input') as HTMLInputElement;
+  commandHistory = readCommandHistory();
+  commandHistoryIndex = commandHistory.length;
+  renderCommandSuggestions();
+  command.addEventListener('focus', () => { void updateCommandSuggestions(); });
+  command.addEventListener('input', () => {
+    window.clearTimeout(commandSuggestionTimer);
+    commandSuggestionTimer = window.setTimeout(() => { void updateCommandSuggestions(); }, 180);
+  });
   command.addEventListener('keydown', ev => {
     ev.stopPropagation();
     if (ev.key === 'Escape') { command.value = ''; command.blur(); }
+    if (ev.ctrlKey && ev.key === 'ArrowUp') {
+      ev.preventDefault();
+      if (commandHistoryIndex === commandHistory.length) commandDraft = command.value;
+      commandHistoryIndex = Math.max(0, commandHistoryIndex - 1);
+      command.value = commandHistory[commandHistoryIndex] ?? '';
+      return;
+    }
+    if (ev.ctrlKey && ev.key === 'ArrowDown') {
+      ev.preventDefault();
+      commandHistoryIndex = Math.min(commandHistory.length, commandHistoryIndex + 1);
+      command.value = commandHistoryIndex === commandHistory.length ? commandDraft : commandHistory[commandHistoryIndex] ?? '';
+      return;
+    }
     if (ev.key === 'Enter') {
       const value = command.value.trim();
       if (!value) return;
+      rememberCommand(value);
       const p = panel();
       const targetPath = p.resolvePathInput(value);
       void window.pos.list(targetPath).then(result => {
@@ -87,8 +115,38 @@ function init(): void {
       });
       command.value = '';
       command.blur();
+      renderCommandSuggestions();
     }
   });
+}
+
+function readCommandHistory(): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(COMMAND_HISTORY_KEY) || '[]');
+    return Array.isArray(value) ? value.filter((x): x is string => typeof x === 'string').slice(0, 100) : [];
+  } catch { return []; }
+}
+
+function rememberCommand(value: string): void {
+  commandHistory = [value, ...commandHistory.filter(x => x !== value)].slice(0, 100);
+  commandHistoryIndex = commandHistory.length;
+  commandDraft = '';
+  try { localStorage.setItem(COMMAND_HISTORY_KEY, JSON.stringify(commandHistory)); } catch { /* storage may be unavailable */ }
+}
+
+function renderCommandSuggestions(fileNames: string[] = []): void {
+  const list = document.getElementById('command-history')!;
+  const values = [...commandHistory, ...fileNames].filter((v, i, all) => v && all.indexOf(v) === i);
+  list.replaceChildren(...values.map(value => {
+    const option = document.createElement('option'); option.value = value; return option;
+  }));
+}
+
+async function updateCommandSuggestions(): Promise<void> {
+  const version = ++commandSuggestionVersion;
+  const result = await window.pos.list(panel().path);
+  if (version !== commandSuggestionVersion || result.error) return;
+  renderCommandSuggestions(result.entries.map(e => e.name));
 }
 
 function readSavedView(): { paths: [string, string]; active: 0 | 1 } {
@@ -384,12 +442,14 @@ function statusTextFor(p: Panel): string {
   if (p.error) return `<span class="st-error">${escapeHtml(p.error)}</span>`;
   const s = p.countSummary();
   const sel = p.idx === app.active ? p.selectedSummary() : null;
-  const letter = p.path.slice(0, 2);
-  const freeTxt = p.total > 0 ? `свободно ${fmtBytes(p.free)} из ${fmtBytes(p.total)}` : '';
+  const letter = p.path.slice(0, 2).toUpperCase();
+  const drive = p.drives.find(d => d.letter.toUpperCase() === letter);
+  const driveLabel = drive?.label ? `[${escapeHtml(drive.label)}]` : escapeHtml(letter);
+  const freeTxt = p.total > 0 ? `${fmtBytes(p.free)} из ${fmtBytes(p.total)} свободно` : '';
   const main = sel && sel.files > 0
     ? `выделено ${sel.files} файл(ов) — ${fmtBytes(sel.bytes)}`
     : `${s.dirs} пап. · ${s.files} файл. · ${fmtBytes(s.bytes)}`;
-  return `${escapeHtml(letter)}${freeTxt ? ' · ' + freeTxt : ''} &nbsp;|&nbsp; ${main}`;
+  return `${driveLabel}${freeTxt ? ' ' + freeTxt : ''} &nbsp;|&nbsp; ${main}`;
 }
 
 // ---------- Функциональные клавиши (нижняя панель) ----------
@@ -406,9 +466,9 @@ function buildFKeyBar(): void {
         void window.pos.openPath(full).then(err => { if (err) void messageDialog('Ошибка', escapeHtml(err)); });
       }
     }],
-    ['F5', 'Копия', doCopy],
-    ['F6', 'Перенос', doMove],
-    ['F7', 'Папка', doMkdir],
+    ['F5', 'Копирование', doCopy],
+    ['F6', 'Перемещение', doMove],
+    ['F7', 'Каталог', doMkdir],
     ['F8', 'Удаление', () => doDelete(false)],
     ['Alt+F4', 'Выход', () => window.close()],
   ];
@@ -451,6 +511,7 @@ function onKeyDown(ev: KeyboardEvent): void {
       case 'Home': p.cursorHomeEnd(false); return true;
       case 'End': p.cursorHomeEnd(true); return true;
       case 'Insert': p.toggleSelectAndMove(); return true;
+      case ' ': p.toggleSelectAndMove(); return true;
       case 'Delete': doDelete(ev.shiftKey); return true;
       case 'F2': case 'F3': case 'F4': case 'F5': case 'F6': case 'F7': case 'F8':
         return handleFKey(key, ev);

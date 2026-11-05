@@ -60,6 +60,27 @@ export async function listDir(dir: string): Promise<DirListResult> {
   }
 }
 
+/** Recursive file size, without following directory symlinks. */
+export async function directorySize(root: string): Promise<number> {
+  let total = 0;
+  const pending = [root];
+  while (pending.length) {
+    const dir = pending.pop()!;
+    let entries: fs.Dirent[];
+    try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
+    catch { continue; }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) pending.push(full);
+      else if (entry.isFile()) {
+        try { total += Number((await fsp.stat(full)).size); } catch { /* skip inaccessible entries */ }
+      }
+    }
+  }
+  return total;
+}
+
 export function describeFsError(e: any, where?: string): string {
   const code = e?.code ?? '';
   const base = e?.message ?? String(e);

@@ -2,11 +2,12 @@ import { app, BrowserWindow, ipcMain, Menu } from 'electron';
 import * as path from 'path';
 import * as os from 'os';
 import * as fsp from 'fs/promises';
-import { spawn } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import * as fsservice from './fsservice';
 import { startOperation, cancelOperation, resolveConflict, OpKind, ConflictAnswer } from './ops';
 
 let mainWindow: BrowserWindow | null = null;
+const fileIconCache = new Map<string, string>();
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -83,9 +84,93 @@ function createWindow(): void {
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());
 
+// Заголовок окна с системными показателями в стиле TC.
+let cpuSnapshot = os.cpus();
+let networkSnapshot: { rx: number; tx: number; at: number } | null = null;
+let networkText = '0,0-0,0 Мбит/с';
+let networkQueryRunning = false;
+setInterval(() => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const cpu = readSystemCpu();
+  const sysTotal = os.totalmem();
+  const sysFree = os.freemem();
+  const usedGb = (sysTotal - sysFree) / (1024 ** 3);
+  const totalGb = sysTotal / (1024 ** 3);
+  const pct = sysTotal ? Math.round(((sysTotal - sysFree) / sysTotal) * 100) : 0;
+  const date = new Intl.DateTimeFormat('ru-RU', {
+    weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  }).format(new Date());
+  const user = (() => { try { return os.userInfo().username; } catch { return 'User'; } })();
+  const title = `${user}^ - POSCommander ${app.getVersion()}  ${date}  Сеть: ${networkText}  Память: ${formatRu(usedGb)}/${formatRu(totalGb)} Гб (${pct}%)  ЦП: ${cpu}%`;
+  mainWindow.setTitle(title);
+}, 1000).unref();
+
+function readSystemCpu(): number {
+  const current = os.cpus();
+  let total = 0, idle = 0;
+  for (let i = 0; i < current.length; i++) {
+    const before = cpuSnapshot[i]?.times;
+    const after = current[i].times;
+    if (!before) continue;
+    const delta = after.user - before.user + after.nice - before.nice + after.sys - before.sys +
+      after.irq - before.irq + after.idle - before.idle;
+    total += delta;
+    idle += after.idle - before.idle;
+  }
+  cpuSnapshot = current;
+  return total > 0 ? Math.max(0, Math.min(100, Math.round((1 - idle / total) * 100))) : 0;
+}
+
+function formatRu(n: number): string {
+  return n.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+function sampleNetwork(): void {
+  if (process.platform !== 'win32' || networkQueryRunning) return;
+  networkQueryRunning = true;
+  const command = '$s=Get-NetAdapterStatistics -ErrorAction SilentlyContinue; if($s){' +
+    '$rx=($s|Measure-Object -Property ReceivedBytes -Sum).Sum;' +
+    '$tx=($s|Measure-Object -Property SentBytes -Sum).Sum; Write-Output "$rx,$tx"}';
+  execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command],
+    { timeout: 5000, windowsHide: true, maxBuffer: 4096 }, (error, stdout) => {
+      networkQueryRunning = false;
+      if (error) return;
+      const [rx, tx] = stdout.trim().split(',').map(Number);
+      if (!Number.isFinite(rx) || !Number.isFinite(tx)) return;
+      const now = Date.now();
+      if (networkSnapshot) {
+        const sec = (now - networkSnapshot.at) / 1000;
+        const down = Math.max(0, rx - networkSnapshot.rx) * 8 / sec / 1e6;
+        const up = Math.max(0, tx - networkSnapshot.tx) * 8 / sec / 1e6;
+        networkText = `${formatRu(down)}-${formatRu(up)} Мбит/с`;
+      }
+      networkSnapshot = { rx, tx, at: now };
+    });
+}
+
+setInterval(sampleNetwork, 5000).unref();
+
 // ---------------- IPC: файловая система ----------------
 
 ipcMain.handle('fs:list', (_e, p: string) => fsservice.listDir(p));
+ipcMain.handle('fs:directorySize', (_e, p: string) => fsservice.directorySize(p));
+ipcMain.handle('fs:fileIcons', async (_e, paths: string[]) => {
+  const limited = paths.slice(0, 512);
+  const icons = await Promise.all(limited.map(async p => {
+    const key = path.resolve(p).toLowerCase();
+    const cached = fileIconCache.get(key);
+    if (cached) return cached;
+    try {
+      const image = await app.getFileIcon(p, { size: 'small' });
+      const uri = image.toDataURL();
+      fileIconCache.set(key, uri);
+      if (fileIconCache.size > 4096) fileIconCache.delete(fileIconCache.keys().next().value!);
+      return uri;
+    } catch { return ''; }
+  }));
+  return icons.concat(Array(Math.max(0, paths.length - icons.length)).fill(''));
+});
 ipcMain.handle('fs:statfs', (_e, p: string) => fsservice.statFs(p));
 ipcMain.handle('fs:drives', () => fsservice.getDrives());
 ipcMain.handle('fs:mkdir', async (_e, p: string) => {

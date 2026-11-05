@@ -3,6 +3,7 @@ export interface Entry {
   isDir: boolean;
   size: number;
   mtime: number;
+  icon?: string;
 }
 
 export interface Drive {
@@ -18,6 +19,8 @@ export type SortBy = 'name' | 'ext' | 'size' | 'date';
 
 export interface PosApi {
   list(path: string): Promise<{ path: string; entries: Entry[]; error?: string }>;
+  directorySize(path: string): Promise<number>;
+  fileIcons(paths: string[]): Promise<string[]>;
   statfs(path: string): Promise<{ total: number; free: number; error?: string }>;
   drives(): Promise<Drive[]>;
   mkdir(path: string): Promise<string>;

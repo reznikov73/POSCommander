@@ -11,12 +11,13 @@ export function naturalCmp(a: string, b: string): number {
 /** Человекочитаемый размер: 0, 12 КБ, 3.4 МБ ... */
 export function fmtBytes(n: number): string {
   if (!Number.isFinite(n) || n < 0) return '';
-  if (n < 1024) return String(n);
-  const units = ['КБ', 'МБ', 'ГБ', 'ТБ', 'ПБ'];
+  if (n < 1024) return `${Math.round(n)} байт`;
+  const units = ['Кб', 'Мб', 'Гб', 'Тб', 'Пб'];
   let v = n / 1024;
   let u = 0;
   while (v >= 1024 && u < units.length - 1) { v /= 1024; u++; }
-  return (v < 10 ? v.toFixed(1) : Math.round(v).toString()) + ' ' + units[u];
+  const amount = v.toFixed(1).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return amount + ' ' + units[u];
 }
 
 /** Дата в формате ТС: дд.мм.гг чч:мм */
@@ -82,7 +83,7 @@ const ICONS: Record<string, string> = {
 
 export function iconFor(e: Entry): string {
   if (e.isDir) return '📁';
-  return ICONS[extOf(e.name)] ?? '';
+  return ICONS[extOf(e.name)] ?? '📄';
 }
 
 export function extGroup(name: string): string {

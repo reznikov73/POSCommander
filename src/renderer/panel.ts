@@ -24,6 +24,11 @@ export class Panel {
 
   private listEl: HTMLElement;
   private pathInput: HTMLInputElement;
+  private pathHistoryEl: HTMLDataListElement;
+  private pathHistory: string[] = [];
+  private directorySizes = new Map<string, number>();
+  private pendingDirectorySizes = new Set<string>();
+  private iconRequestVersion = 0;
   private driveBtn: HTMLButtonElement;
   private driveStrip: HTMLElement;
   private tabStrip: HTMLElement;
@@ -51,7 +56,8 @@ export class Panel {
       <div class="tab-strip"></div>
       <div class="panel-head">
         <button class="drive-btn" title="Сменить диск (Alt+F${idx + 1})">?</button>
-        <input class="path-input" spellcheck="false" />
+        <input class="path-input" list="path-history-${idx}" spellcheck="false" autocomplete="on" />
+        <datalist id="path-history-${idx}"></datalist>
         <button class="reread-btn" title="Перечитать (Ctrl+R)">⟳</button>
       </div>
       <div class="columns">
@@ -66,6 +72,7 @@ export class Panel {
     this.driveStrip = container.querySelector('.drive-strip')!;
     this.tabStrip = container.querySelector('.tab-strip')!;
     this.pathInput = container.querySelector('.path-input')!;
+    this.pathHistoryEl = container.querySelector(`#path-history-${idx}`)!;
     this.listEl = container.querySelector('.list')!;
     this.headerRow = container.querySelector('.columns')!;
 
@@ -97,6 +104,7 @@ export class Panel {
       }
     });
     this.pathInput.addEventListener('focus', () => { this.hooks.activate(this); this.pathInput.select(); });
+    this.loadPathHistory();
 
     // мышь
     this.listEl.addEventListener('mousedown', (ev) => {
@@ -119,6 +127,7 @@ export class Panel {
       }
       // Не заменяем DOM строки на mousedown: иначе браузер теряет dblclick target.
       this.syncRowStates();
+      this.requestSelectedDirectorySizes();
       this.scrollCursorIntoView();
       this.hooks.statusChanged();
     });
@@ -154,6 +163,26 @@ export class Panel {
     this.sorted = dirs.concat(files);
   }
 
+  private loadPathHistory(): void {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`poscommander.pathHistory.${this.idx}`) || '[]');
+      if (Array.isArray(saved)) this.pathHistory = saved.filter((x): x is string => typeof x === 'string').slice(0, 50);
+    } catch { this.pathHistory = []; }
+    this.renderPathHistory();
+  }
+
+  private rememberPath(path: string): void {
+    this.pathHistory = [path, ...this.pathHistory.filter(p => p.toLowerCase() !== path.toLowerCase())].slice(0, 50);
+    try { localStorage.setItem(`poscommander.pathHistory.${this.idx}`, JSON.stringify(this.pathHistory)); } catch { /* ignore */ }
+    this.renderPathHistory();
+  }
+
+  private renderPathHistory(): void {
+    this.pathHistoryEl.replaceChildren(...this.pathHistory.map(path => {
+      const option = document.createElement('option'); option.value = path; return option;
+    }));
+  }
+
   async refresh(): Promise<void> {
     const version = ++this.navigationVersion;
     const requestedPath = this.path;
@@ -169,16 +198,20 @@ export class Panel {
       if (res.path) this.path = normalizePath(res.path);
     }
     this.pathInput.value = this.path;
+    this.rememberPath(this.path);
     // убираем из выделения исчезнувшие имена
     const names = new Set(this.entries.map(e => e.name));
     for (const n of Array.from(this.sel)) if (!names.has(n)) this.sel.delete(n);
     this.sortEntries();
+    this.directorySizes.clear();
+    this.pendingDirectorySizes.clear();
     // курсор: на прежнее имя, иначе на первое место
     const vis = this.visible();
     let idx = vis.findIndex(e => e.name === keepCursorName);
     if (idx < 0) idx = 0;
     this.cursor = idx;
     this.render();
+    this.loadFileIcons();
     this.updateDriveButton();
     void this.loadFree();
     this.hooks.statusChanged();
@@ -197,6 +230,7 @@ export class Panel {
     const previous = this.path;
     this.path = normalizePath(res.path || np);
     this.tabs[this.activeTab] = this.path;
+    this.rememberPath(this.path);
     if (trackHistory && previous !== np) {
       this.history = this.history.slice(0, this.historyIndex + 1);
       this.history.push(this.path);
@@ -209,10 +243,13 @@ export class Panel {
     this.anchor = -1;
     this.error = '';
     this.entries = res.entries;
+    this.directorySizes.clear();
+    this.pendingDirectorySizes.clear();
     this.pathInput.value = this.path;
     this.sortEntries();
     this.cursor = 0;
     this.render();
+    this.loadFileIcons();
     this.updateDriveButton();
     void this.loadFree();
     this.hooks.statusChanged();
@@ -311,11 +348,10 @@ export class Panel {
       if (selected) row.classList.add('sel');
       if (hidden) row.classList.add('hidden');
       if (dotdot) row.classList.add('dotdot');
-      const typeTxt = e.isDir ? '&lt;Папка&gt;' : escapeHtml(extOf(e.name).toUpperCase());
-      const sizeTxt = e.isDir ? '' : fmtBytes(e.size);
-      const iconTxt = dotdot ? '⬆' : iconFor(e);
+      const typeTxt = e.isDir ? '' : escapeHtml(extOf(e.name).toUpperCase());
+      const sizeTxt = e.isDir ? '&lt;Папка&gt;' : fmtBytes(e.size);
       row.innerHTML = `
-        <span class="c-icon">${iconTxt}</span>
+        <span class="c-icon">${dotdot ? '⬆' : this.iconHtml(e)}</span>
         <span class="c-name${e.isDir ? ' isdir' : ''}" title="${escapeAttr(e.name)}">${escapeHtml(e.name)}</span>
         <span class="c-ext">${typeTxt}</span>
         <span class="c-size">${sizeTxt}</span>
@@ -323,6 +359,7 @@ export class Panel {
       frag.appendChild(row);
     }
     this.listEl.appendChild(frag);
+    this.updateDirectorySizeCells();
     this.updateSortHeader();
     this.scrollCursorIntoView();
   }
@@ -334,6 +371,60 @@ export class Panel {
       const entry = vis[i];
       row.classList.toggle('cursor', i === this.cursor);
       row.classList.toggle('sel', !!entry && entry.name !== '..' && this.sel.has(entry.name));
+    }
+    this.updateDirectorySizeCells();
+  }
+
+  private iconHtml(e: Entry): string {
+    return e.icon
+      ? `<img src="${escapeAttr(e.icon)}" alt="" />`
+      : escapeHtml(iconFor(e));
+  }
+
+  private async loadFileIcons(): Promise<void> {
+    const version = ++this.iconRequestVersion;
+    const paths = this.entries.map(e => joinPath(this.path, e.name));
+    if (!paths.length) return;
+    const icons = await window.pos.fileIcons(paths).catch(() => []);
+    if (version !== this.iconRequestVersion) return;
+    for (let i = 0; i < Math.min(icons.length, this.entries.length); i++) {
+      this.entries[i].icon = icons[i];
+      const visibleIndex = this.visible().findIndex(e => e.name === this.entries[i].name);
+      const iconCell = this.listEl.children[visibleIndex]?.querySelector('.c-icon');
+      if (iconCell) iconCell.innerHTML = this.iconHtml(this.entries[i]);
+    }
+  }
+
+  private async requestDirectorySize(entry: Entry): Promise<void> {
+    if (!entry.isDir || this.directorySizes.has(entry.name) || this.pendingDirectorySizes.has(entry.name)) return;
+    this.pendingDirectorySizes.add(entry.name);
+    this.updateDirectorySizeCells();
+    const directoryPath = this.path;
+    const fullPath = joinPath(directoryPath, entry.name);
+    const size = await window.pos.directorySize(fullPath).catch(() => 0);
+    this.pendingDirectorySizes.delete(entry.name);
+    if (this.path !== directoryPath) return;
+    this.directorySizes.set(entry.name, size);
+    this.updateDirectorySizeCells();
+    this.hooks.statusChanged();
+  }
+
+  private requestSelectedDirectorySizes(): void {
+    for (const e of this.sorted) if (e.isDir && this.sel.has(e.name)) void this.requestDirectorySize(e);
+  }
+
+  private updateDirectorySizeCells(): void {
+    const visible = this.visible();
+    for (let i = 0; i < visible.length; i++) {
+      const entry = visible[i];
+      if (!entry.isDir) continue;
+      const cell = this.listEl.children[i]?.querySelector('.c-size');
+      if (!cell) continue;
+      if (this.sel.has(entry.name)) {
+        cell.textContent = this.directorySizes.has(entry.name)
+          ? fmtBytes(this.directorySizes.get(entry.name)!)
+          : this.pendingDirectorySizes.has(entry.name) ? '…' : '<Папка>';
+      } else cell.textContent = '<Папка>';
     }
   }
 
@@ -389,7 +480,10 @@ export class Panel {
   /** Insert: переключает выделение и сдвигает курсор (как в ТС) */
   toggleSelectAndMove(): void {
     const e = this.visible()[this.cursor];
-    if (e && !e.name.startsWith('..')) this.toggleSelect(e, true);
+    if (e && !e.name.startsWith('..')) {
+      this.toggleSelect(e, true);
+      this.requestSelectedDirectorySizes();
+    }
     this.moveCursor(1, false);
   }
 

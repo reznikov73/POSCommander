@@ -146,6 +146,7 @@ html, body {
 .row:hover { background: #f0f5ff; }
 
 .c-icon { text-align: center; font-size: 12px; }
+.c-icon img { width: 16px; height: 16px; object-fit: contain; vertical-align: middle; }
 .c-name { overflow: hidden; text-overflow: ellipsis; padding-right: 4px; }
 .c-ext { color: #555; }
 .c-size { text-align: right; padding-right: 6px; color: #333; }

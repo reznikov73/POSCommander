@@ -3,6 +3,8 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 // Типы, общие с main (дублируются минимально)
 export interface PosApi {
   list(path: string): Promise<{ path: string; entries: PosEntry[]; error?: string }>;
+  directorySize(path: string): Promise<number>;
+  fileIcons(paths: string[]): Promise<string[]>;
   statfs(path: string): Promise<{ total: number; free: number; error?: string }>;
   drives(): Promise<PosDrive[]>;
   mkdir(path: string): Promise<string>;
@@ -18,11 +20,13 @@ export interface PosApi {
   onOpEvent(cb: (data: any) => void): () => void;
 }
 
-export interface PosEntry { name: string; isDir: boolean; size: number; mtime: number }
+export interface PosEntry { name: string; isDir: boolean; size: number; mtime: number; icon?: string }
 export interface PosDrive { letter: string; root: string; label: string; type: string; total: number; free: number }
 
 const api: PosApi = {
   list: (p) => ipcRenderer.invoke('fs:list', p),
+  directorySize: (p) => ipcRenderer.invoke('fs:directorySize', p),
+  fileIcons: (paths) => ipcRenderer.invoke('fs:fileIcons', paths),
   statfs: (p) => ipcRenderer.invoke('fs:statfs', p),
   drives: () => ipcRenderer.invoke('fs:drives'),
   mkdir: (p) => ipcRenderer.invoke('fs:mkdir', p),
