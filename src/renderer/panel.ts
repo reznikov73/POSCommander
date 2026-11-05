@@ -4,6 +4,10 @@ import { ROW_H, fmtBytes, fmtDate, naturalCmp, parentOf, joinPath, isRoot, norma
 export interface PanelSort { by: SortBy; asc: boolean }
 
 const SORT_LABELS: Record<SortBy, string> = { name: 'Имя', ext: 'Расш.', size: 'Размер', date: 'Дата' };
+const PARENT_FOLDER_ICON = '<svg class="parent-folder-icon" viewBox="0 0 16 16" aria-hidden="true">' +
+  '<path d="M1 3.5h5l1.4 1.7H15v8.2H1z" fill="#d8d8d8" stroke="#777" />' +
+  '<path d="M8 12V7.5M6.1 9.4 8 7.5l1.9 1.9" fill="none" stroke="#333" stroke-width="1.2" stroke-linecap="square" />' +
+  '</svg>';
 
 /**
  * Одна панель файлового списка: заголовок с диском и путём,
@@ -351,7 +355,7 @@ export class Panel {
       const typeTxt = e.isDir ? '' : escapeHtml(extOf(e.name).toUpperCase());
       const sizeTxt = e.isDir ? '&lt;Папка&gt;' : fmtBytes(e.size);
       row.innerHTML = `
-        <span class="c-icon">${dotdot ? '⬆' : this.iconHtml(e)}</span>
+        <span class="c-icon">${dotdot ? PARENT_FOLDER_ICON : this.iconHtml(e)}</span>
         <span class="c-name${e.isDir ? ' isdir' : ''}" title="${escapeAttr(e.name)}">${escapeHtml(e.name)}</span>
         <span class="c-ext">${typeTxt}</span>
         <span class="c-size">${sizeTxt}</span>

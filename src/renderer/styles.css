@@ -5,7 +5,7 @@
   --head-bg: #e4e4e4;
   --accent: #316ac5;
   --sel-name: #c00000;
-  --dir-name: #0033cc;
+  --dir-name: #000000;
   --text: #1a1a1a;
   --dim: #8a8a8a;
   --row-h: 18px;
@@ -147,14 +147,15 @@ html, body {
 
 .c-icon { text-align: center; font-size: 12px; }
 .c-icon img { width: 16px; height: 16px; object-fit: contain; vertical-align: middle; }
+.c-icon svg { width: 16px; height: 16px; vertical-align: middle; }
 .c-name { overflow: hidden; text-overflow: ellipsis; padding-right: 4px; }
 .c-ext { color: #555; }
 .c-size { text-align: right; padding-right: 6px; color: #333; }
 .c-date { text-align: right; padding-right: 6px; color: #333; }
 
-.row .c-name.isdir { color: var(--dir-name); font-weight: 600; }
+.row .c-name.isdir { color: var(--dir-name); font-weight: 400; }
 .row.hidden .c-name, .row.hidden .c-ext { color: var(--dim); }
-.row.dotdot .c-name { color: #555; font-weight: 600; }
+.row.dotdot .c-name { color: #000; font-weight: 400; }
 
 .row.sel .c-name { color: var(--sel-name); }
 
