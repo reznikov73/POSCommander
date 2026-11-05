@@ -194,21 +194,23 @@ function driveTypeName(t: number): string {
 }
 
 export async function getDrives(): Promise<DriveInfo[]> {
-  // Сначала wmic (быстрый), при его отсутствии — PowerShell, затем перебор букв
+  // PowerShell передаёт метку тома в Base64, чтобы не зависеть от OEM-кодировки WMIC.
+  try {
+    const command = '$enc=[System.Text.Encoding]::UTF8; Get-CimInstance Win32_LogicalDisk | ' +
+      'Select-Object DeviceID,DriveType,FreeSpace,Size,@{Name="VolumeNameBase64";Expression={' +
+      '[Convert]::ToBase64String($enc.GetBytes([string]$_.VolumeName))}} | ConvertTo-Csv -NoTypeInformation';
+    const { stdout } = await exec('powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', command],
+      { timeout: 15000, windowsHide: true, maxBuffer: 1 << 20 });
+    const drives = parseCsv(stdout);
+    if (drives.length) return drives;
+  } catch { /* пробуем следующий способ */ }
+
   try {
     const { stdout } = await exec('wmic',
       ['logicaldisk', 'get', 'deviceID,drivetype,freespace,size,volumename'],
       { timeout: 6000, windowsHide: true, maxBuffer: 1 << 20 });
     const drives = parseWmic(stdout);
-    if (drives.length) return drives;
-  } catch { /* пробуем следующий способ */ }
-
-  try {
-    const { stdout } = await exec('powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command',
-        'Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,DriveType,FreeSpace,Size,VolumeName | ConvertTo-Csv -NoTypeInformation'],
-      { timeout: 15000, windowsHide: true, maxBuffer: 1 << 20 });
-    const drives = parseCsv(stdout);
     if (drives.length) return drives;
   } catch { /* последний способ */ }
 
@@ -221,7 +223,8 @@ function parseWmic(out: string): DriveInfo[] {
   for (const line of out.split(/\r?\n/)) {
     const m = re.exec(line.trim());
     if (!m) continue;
-    res.push(mkDrive(m[1], +m[2], +m[4], +m[3], m[5].trim()));
+    // WMIC text uses the active OEM code page; don't display a corrupted label.
+    res.push(mkDrive(m[1], +m[2], +m[4], +m[3], ''));
   }
   return res.sort((a, b) => a.letter.localeCompare(b.letter));
 }
@@ -236,7 +239,11 @@ function parseCsv(out: string): DriveInfo[] {
     const cells = splitCsvLine(lines[i]);
     const letter = cells[idx('deviceid')];
     if (!letter) continue;
-    res.push(mkDrive(letter, +cells[idx('drivetype')], +cells[idx('freespace')], +cells[idx('size')], cells[idx('volumename')]));
+    const label64 = cells[idx('volumenamebase64')];
+    const label = label64 !== undefined
+      ? Buffer.from(label64, 'base64').toString('utf8')
+      : cells[idx('volumename')];
+    res.push(mkDrive(letter, +cells[idx('drivetype')], +cells[idx('freespace')], +cells[idx('size')], label));
   }
   return res.sort((a, b) => a.letter.localeCompare(b.letter));
 }
