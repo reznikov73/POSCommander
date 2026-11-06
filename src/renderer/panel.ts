@@ -59,7 +59,7 @@ export class Panel {
       driveMenu: (panel: Panel, anchor: HTMLElement) => void;
       activate: (panel: Panel) => void;
       statusChanged: () => void;
-      fileAction: (panel: Panel, action: 'open' | 'copy' | 'move' | 'rename' | 'delete' | 'extract') => void;
+      fileAction: (panel: Panel, action: 'open' | 'copy' | 'move' | 'rename' | 'delete' | 'extract-select' | 'extract-here' | 'extract-folder') => void;
       dropFiles: (sourceIdx: 0 | 1, paths: string[], target: Panel, destination: string, copy: boolean) => void;
     },
   ) {
@@ -223,12 +223,17 @@ export class Panel {
   private showFileContextMenu(x: number, y: number): void {
     document.querySelector('.file-context-menu')?.remove();
     const menu = document.createElement('div'); menu.className = 'file-context-menu';
-    const actions: Array<[string, 'open' | 'copy' | 'move' | 'rename' | 'delete' | 'extract']> = [
+    const actions: Array<[string, 'open' | 'copy' | 'move' | 'rename' | 'delete' | 'extract-select' | 'extract-here' | 'extract-folder']> = [
       ['Открыть', 'open'], ['Копировать…', 'copy'], ['Переместить…', 'move'],
     ];
     const current = this.visible()[this.cursor];
     if (current && !current.isDir && /\.(zip|7z|tar|gz|tgz|bz2|xz|wim|iso|cab|rar)$/i.test(current.name)) {
-      actions.push(['Распаковать…', 'extract']);
+      const folderName = current.name.replace(/\.(zip|7z|tar|gz|tgz|bz2|xz|wim|iso|cab|rar)$/i, '');
+      actions.push(
+        ['Извлечь файлы…', 'extract-select'],
+        ['Извлечь в текущую папку', 'extract-here'],
+        [`Извлечь в ${folderName}\\`, 'extract-folder'],
+      );
     }
     actions.push(['Переименовать', 'rename'], ['Удалить', 'delete']);
     for (const [label, action] of actions) {
@@ -237,7 +242,7 @@ export class Panel {
       menu.appendChild(item);
     }
     menu.style.left = `${Math.min(x, window.innerWidth - 220)}px`;
-    menu.style.top = `${Math.min(y, window.innerHeight - 180)}px`;
+    menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - 250))}px`;
     document.body.appendChild(menu);
     const close = (event: MouseEvent) => {
       if (!menu.contains(event.target as Node)) { menu.remove(); document.removeEventListener('mousedown', close, true); }

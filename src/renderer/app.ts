@@ -66,7 +66,9 @@ function init(): void {
         else if (action === 'copy') doCopy();
         else if (action === 'move') doMove();
         else if (action === 'rename') doRename();
-        else if (action === 'extract') doExtract();
+        else if (action === 'extract-select') doExtract('select');
+        else if (action === 'extract-here') doExtract('here');
+        else if (action === 'extract-folder') doExtract('folder');
         else doDelete(false);
       },
       dropFiles: (sourceIdx, paths, target, destination, forceCopy) => dropFiles(sourceIdx, paths, target, destination, forceCopy),
@@ -386,7 +388,7 @@ function doPack(): void {
   });
 }
 
-function doExtract(): void {
+function doExtract(mode: 'select' | 'here' | 'folder' = 'select'): void {
   const sourcePanel = panel();
   const selected = sourcePanel.selectedPaths();
   const archives = selected.filter(p => /\.(zip|7z|tar|gz|tgz|bz2|xz|wim|iso|cab|rar)$/i.test(p));
@@ -396,11 +398,26 @@ function doExtract(): void {
   }
   const defaultDest = otherPanel().path;
   const summary = archives.length === 1 ? `«${basename(archives[0])}»` : `${archives.length} архивов`;
-  void archiveExtractDialog(defaultDest, summary).then(async dest => {
-    if (!dest) return;
-    const destination = otherPanel().resolvePathInput(dest);
+  const chooseDestination = mode === 'select'
+    ? archiveExtractDialog(defaultDest, summary)
+    : Promise.resolve(mode === 'here' ? sourcePanel.path : '');
+  void chooseDestination.then(async dest => {
+    if (dest === null) return;
     const busy = archiveBusyDialog('Распаковка архивов');
-    const error = await window.pos.extractArchives(archives, destination).catch(e => String(e));
+    let error = '';
+    try {
+      if (mode === 'folder') {
+        for (const archive of archives) {
+          const folderName = basename(archive).replace(/\.(zip|7z|tar|gz|tgz|bz2|xz|wim|iso|cab|rar)$/i, '');
+          const destination = joinPath(sourcePanel.path, folderName);
+          const itemError = await window.pos.extractArchives([archive], destination);
+          if (itemError) { error = itemError; break; }
+        }
+      } else {
+        const destination = mode === 'here' ? sourcePanel.path : otherPanel().resolvePathInput(dest);
+        error = await window.pos.extractArchives(archives, destination);
+      }
+    } catch (e) { error = String(e); }
     busy.close();
     void sourcePanel.refresh(); void otherPanel().refresh();
     if (error) void messageDialog('Ошибка распаковки', escapeHtml(error));

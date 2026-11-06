@@ -137,7 +137,10 @@
     const archiveRow = [...document.querySelectorAll('#panel0 .row')].find(row => row.querySelector('.c-name')?.textContent === 'smoke.zip');
     if (archiveRow) {
       archiveRow.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 35, clientY: 35 }));
-      out.archiveContextExtract = [...document.querySelectorAll('.file-context-menu button')].some(button => button.textContent === 'Распаковать…');
+      const extractActions = [...document.querySelectorAll('.file-context-menu button')].map(button => button.textContent);
+      out.archiveContextExtract = extractActions.includes('Извлечь файлы…') &&
+        extractActions.includes('Извлечь в текущую папку') &&
+        extractActions.includes('Извлечь в smoke\\');
       document.querySelector('.file-context-menu')?.remove();
     } else out.archiveContextExtract = false;
     const activePanel = document.querySelector('.panel.active');
