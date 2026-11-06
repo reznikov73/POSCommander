@@ -1,4 +1,4 @@
-import { fmtBytes, fmtDate, basename } from './util.js';
+import { fmtBytes, fmtDate, basename, displayPath } from './util.js';
 
 export type ConflictAnswer = 'overwrite' | 'skip' | 'overwriteAll' | 'skipAll' | 'cancel';
 
@@ -141,7 +141,7 @@ export function copyMoveDialog(kind: 'copy' | 'move', defaultDest: string, summa
       <div class="dlg-hint">Enter — начать · Esc — отмена · можно указать новое имя в конце пути</div>
     `);
     const input = body.querySelector('.dlg-input') as HTMLInputElement;
-    input.value = defaultDest;
+    input.value = displayPath(defaultDest);
     let done = false;
     const finish = (val: string | null) => {
       if (done) return;

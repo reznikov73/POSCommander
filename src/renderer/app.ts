@@ -438,17 +438,18 @@ function doCopy(): void {
   if (!src.length) return;
   void copyMoveDialog('copy', otherPanel().path, summaryText(src)).then(dest => {
     if (!dest) return;
-    if (dest.startsWith('archive://') && src.every(p => p.startsWith('archive://'))) {
+    const destination = otherPanel().resolvePathInput(dest);
+    if (destination.startsWith('archive://') && src.every(p => p.startsWith('archive://'))) {
       void messageDialog('Копирование между архивами', 'Сначала извлеките файлы в обычную папку, затем добавьте их в другой архив.');
       return;
     }
-    if (dest.startsWith('archive://')) {
-      void runArchiveCommand('Добавление файлов в архив', () => window.pos.addArchiveEntries(src, dest)).then(err => {
+    if (destination.startsWith('archive://')) {
+      void runArchiveCommand('Добавление файлов в архив', () => window.pos.addArchiveEntries(src, destination)).then(err => {
         if (err) void messageDialog('Ошибка добавления в архив', escapeHtml(err));
         else { void panel().refresh(); void otherPanel().refresh(); }
       });
     } else if (src.every(p => p.startsWith('archive://'))) {
-      void runArchiveCommand('Извлечение файлов', () => window.pos.extractArchiveEntries(src, dest)).then(err => {
+      void runArchiveCommand('Извлечение файлов', () => window.pos.extractArchiveEntries(src, destination)).then(err => {
         if (err) void messageDialog('Ошибка извлечения файлов', escapeHtml(err));
         else { void panel().refresh(); void otherPanel().refresh(); }
       });
@@ -461,17 +462,18 @@ function doMove(): void {
   if (!src.length) return;
   void copyMoveDialog('move', otherPanel().path, summaryText(src)).then(dest => {
     if (!dest) return;
-    if (dest.startsWith('archive://') && src.every(p => p.startsWith('archive://'))) {
+    const destination = otherPanel().resolvePathInput(dest);
+    if (destination.startsWith('archive://') && src.every(p => p.startsWith('archive://'))) {
       void messageDialog('Перемещение между архивами', 'Сначала извлеките файлы в обычную папку, затем добавьте их в другой архив.');
       return;
     }
-    if (dest.startsWith('archive://')) {
-      void runArchiveCommand('Добавление файлов в архив', () => window.pos.addArchiveEntries(src, dest)).then(err => {
+    if (destination.startsWith('archive://')) {
+      void runArchiveCommand('Добавление файлов в архив', () => window.pos.addArchiveEntries(src, destination)).then(err => {
         if (err) void messageDialog('Ошибка добавления в архив', escapeHtml(err));
         else startOp('deletePerm', src, '');
       });
     } else if (src.every(p => p.startsWith('archive://'))) {
-      void runArchiveCommand('Извлечение файлов', () => window.pos.extractArchiveEntries(src, dest)).then(err => {
+      void runArchiveCommand('Извлечение файлов', () => window.pos.extractArchiveEntries(src, destination)).then(err => {
         if (err) { void messageDialog('Ошибка извлечения файлов', escapeHtml(err)); return; }
         void panel().refresh(); void otherPanel().refresh();
         void messageDialog('Файлы извлечены', 'Исходные файлы оставлены в архиве. При совпадении имён существующие файлы назначения пропускаются.');
