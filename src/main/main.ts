@@ -5,7 +5,11 @@ import * as fsp from 'fs/promises';
 import { execFile, spawn } from 'child_process';
 import * as fsservice from './fsservice';
 import { startOperation, cancelOperation, resolveConflict, OpKind, ConflictAnswer } from './ops';
-import { createArchive, extractArchives, ArchiveFormat } from './archives';
+import {
+  createArchive, extractArchives, ArchiveFormat, listArchiveDirectory,
+  parseArchivePath, extractArchiveEntries, deleteArchiveEntries, addFilesToArchive,
+  renameArchiveEntry, createArchiveFolder, extractArchiveFileForView,
+} from './archives';
 
 let mainWindow: BrowserWindow | null = null;
 const fileIconCache = new Map<string, string>();
@@ -154,11 +158,23 @@ setInterval(sampleNetwork, 5000).unref();
 
 // ---------------- IPC: файловая система ----------------
 
-ipcMain.handle('fs:list', (_e, p: string) => fsservice.listDir(p));
-ipcMain.handle('fs:directorySize', (_e, p: string) => fsservice.directorySize(p));
+ipcMain.handle('fs:list', async (_e, p: string) => {
+  if (!p.startsWith('archive://')) return fsservice.listDir(p);
+  try {
+    const parsed = parseArchivePath(p);
+    if (!parsed) throw new Error('Некорректный путь внутри архива');
+    const entries = await listArchiveDirectory(p);
+    return { path: p, entries };
+  } catch (e: any) { return { path: p, entries: [], error: e?.message ?? String(e) }; }
+});
+ipcMain.handle('fs:directorySize', async (_e, p: string) => {
+  const parsed = parseArchivePath(p);
+  return parsed ? 0 : fsservice.directorySize(p);
+});
 ipcMain.handle('fs:fileIcons', async (_e, paths: string[]) => {
   const limited = paths.slice(0, 512);
   const icons = await Promise.all(limited.map(async p => {
+    if (p.startsWith('archive://')) return '';
     const key = path.resolve(p).toLowerCase();
     const cached = fileIconCache.get(key);
     if (cached) return cached;
@@ -172,12 +188,27 @@ ipcMain.handle('fs:fileIcons', async (_e, paths: string[]) => {
   }));
   return icons.concat(Array(Math.max(0, paths.length - icons.length)).fill(''));
 });
-ipcMain.handle('fs:statfs', (_e, p: string) => fsservice.statFs(p));
+ipcMain.handle('fs:statfs', (_e, p: string) => {
+  const parsed = parseArchivePath(p);
+  return fsservice.statFs(parsed ? path.dirname(parsed.archive) : p);
+});
 ipcMain.handle('fs:drives', () => fsservice.getDrives());
 ipcMain.handle('archive:create', (_e, args: { srcs: string[]; archivePath: string; format: ArchiveFormat; cwd: string }) =>
   createArchive(args.srcs, args.archivePath, args.format, args.cwd).then(() => '').catch((e: any) => e?.message ?? String(e)));
 ipcMain.handle('archive:extract', (_e, args: { archives: string[]; destination: string }) =>
   extractArchives(args.archives, args.destination).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:extractEntries', (_e, args: { entries: string[]; destination: string }) =>
+  extractArchiveEntries(args.entries, args.destination).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:deleteEntries', (_e, entries: string[]) =>
+  deleteArchiveEntries(entries).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:addEntries', (_e, args: { srcs: string[]; destination: string }) =>
+  addFilesToArchive(args.srcs, args.destination).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:renameEntry', (_e, args: { entry: string; newName: string }) =>
+  renameArchiveEntry(args.entry, args.newName).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:createFolder', (_e, p: string) =>
+  createArchiveFolder(p).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:extractForView', (_e, p: string) =>
+  extractArchiveFileForView(p).then(result => ({ path: result })).catch((e: any) => ({ error: e?.message ?? String(e) })));
 ipcMain.handle('fs:mkdir', async (_e, p: string) => {
   try { await fsservice.mkdirRecursive(p); return ''; }
   catch (e: any) { return fsservice.describeFsError(e, p); }

@@ -23,6 +23,12 @@ export interface PosApi {
   fileIcons(paths: string[]): Promise<string[]>;
   createArchive(srcs: string[], archivePath: string, format: 'zip' | '7z' | 'tar', cwd: string): Promise<string>;
   extractArchives(archives: string[], destination: string): Promise<string>;
+  extractArchiveEntries(entries: string[], destination: string): Promise<string>;
+  deleteArchiveEntries(entries: string[]): Promise<string>;
+  addArchiveEntries(srcs: string[], destination: string): Promise<string>;
+  renameArchiveEntry(entry: string, newName: string): Promise<string>;
+  createArchiveFolder(path: string): Promise<string>;
+  extractArchiveFileForView(path: string): Promise<{ path?: string; error?: string }>;
   statfs(path: string): Promise<{ total: number; free: number; error?: string }>;
   drives(): Promise<Drive[]>;
   mkdir(path: string): Promise<string>;

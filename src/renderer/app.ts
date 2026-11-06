@@ -1,5 +1,5 @@
 import { Panel } from './panel.js';
-import { fmtBytes, basename, joinPath } from './util.js';
+import { fmtBytes, basename, joinPath, archiveRootPath, archivePathParts, displayPath } from './util.js';
 import { Drive, Entry } from './types.js';
 import {
   dialogs, promptDialog, copyMoveDialog, deleteDialog, progressDialog,
@@ -223,13 +223,35 @@ function buildChrome(): void {
 }
 
 function editCurrent(): void {
-  const cur = panel().currentPath(); if (cur) void window.pos.openPath(cur);
+  const cur = panel().currentPath();
+  if (cur?.startsWith('archive://')) {
+    void messageDialog('Редактирование файла в архиве', 'Сначала скопируйте файл из архива клавишей F5, затем отредактируйте извлечённую копию.');
+    return;
+  }
+  if (cur) void resolveViewPath(cur).then(local => { if (local) return window.pos.openPath(local); });
+}
+
+async function resolveViewPath(filePath: string): Promise<string | null> {
+  if (!filePath.startsWith('archive://')) return filePath;
+  const extracted = await runArchiveCommand('Извлечение файла для просмотра', async () => {
+    const result = await window.pos.extractArchiveFileForView(filePath);
+    return result.error ? `!ERROR!${result.error}` : result.path ?? '!ERROR!Не удалось извлечь файл';
+  });
+  if (extracted.startsWith('!ERROR!')) {
+    void messageDialog('Ошибка извлечения файла', escapeHtml(extracted.slice('!ERROR!'.length)));
+    return null;
+  }
+  return extracted;
 }
 
 function doPack(): void {
   const sourcePanel = panel();
   const srcs = sourcePanel.selectedPaths();
   if (!srcs.length) return;
+  if (srcs.some(p => p.startsWith('archive://'))) {
+    void messageDialog('Упаковка из архива', 'Сначала извлеките выбранные файлы в обычную папку, затем создайте из неё архив.');
+    return;
+  }
   const baseName = srcs.length === 1 ? basename(srcs[0]) : 'Архив';
   const defaultPath = joinPath(otherPanel().path, baseName + '.zip');
   void archiveCreateDialog(defaultPath, srcs.length === 1 ? `«${baseName}»` : `${srcs.length} объектов`).then(async choice => {
@@ -298,9 +320,15 @@ function otherPanel(): Panel {
 
 function openEntry(p: Panel, e: Entry): void {
   if (e.name === '..') { p.goUp(); return; }
-  const full = p.path.endsWith('\\') ? p.path + e.name : p.path + '\\' + e.name;
+  const full = joinPath(p.path, e.name);
   if (e.isDir) {
     void p.setPath(full);
+  } else if (!p.path.startsWith('archive://') && /\.(zip|7z|tar|gz|tgz|bz2|xz|wim|iso|cab|rar)$/i.test(e.name)) {
+    void p.setPath(archiveRootPath(full));
+  } else if (p.path.startsWith('archive://')) {
+    void resolveViewPath(full).then(local => {
+      if (local) return window.pos.openPath(local).then(err => { if (err) void messageDialog('Ошибка', escapeHtml(err)); });
+    });
   } else {
     // файл — системное открытие ассоциированной программой
     void window.pos.openPath(full).then(err => {
@@ -357,6 +385,13 @@ function startOp(kind: 'copy' | 'move' | 'deletePerm' | 'trash', srcs: string[],
   });
 }
 
+async function runArchiveCommand(title: string, run: () => Promise<string>): Promise<string> {
+  const busy = archiveBusyDialog(title);
+  try { return await run(); }
+  catch (error) { return String(error); }
+  finally { busy.close(); }
+}
+
 function onOpEvent(ev: OpEvent): void {
   if ('conflictId' in ev && ev.conflictId !== undefined) {
     void conflictDialog({
@@ -402,7 +437,22 @@ function doCopy(): void {
   const src = panel().selectedPaths();
   if (!src.length) return;
   void copyMoveDialog('copy', otherPanel().path, summaryText(src)).then(dest => {
-    if (dest) startOp('copy', src, dest);
+    if (!dest) return;
+    if (dest.startsWith('archive://') && src.every(p => p.startsWith('archive://'))) {
+      void messageDialog('Копирование между архивами', 'Сначала извлеките файлы в обычную папку, затем добавьте их в другой архив.');
+      return;
+    }
+    if (dest.startsWith('archive://')) {
+      void runArchiveCommand('Добавление файлов в архив', () => window.pos.addArchiveEntries(src, dest)).then(err => {
+        if (err) void messageDialog('Ошибка добавления в архив', escapeHtml(err));
+        else { void panel().refresh(); void otherPanel().refresh(); }
+      });
+    } else if (src.every(p => p.startsWith('archive://'))) {
+      void runArchiveCommand('Извлечение файлов', () => window.pos.extractArchiveEntries(src, dest)).then(err => {
+        if (err) void messageDialog('Ошибка извлечения файлов', escapeHtml(err));
+        else { void panel().refresh(); void otherPanel().refresh(); }
+      });
+    } else startOp('copy', src, dest);
   });
 }
 
@@ -410,7 +460,23 @@ function doMove(): void {
   const src = panel().selectedPaths();
   if (!src.length) return;
   void copyMoveDialog('move', otherPanel().path, summaryText(src)).then(dest => {
-    if (dest) startOp('move', src, dest);
+    if (!dest) return;
+    if (dest.startsWith('archive://') && src.every(p => p.startsWith('archive://'))) {
+      void messageDialog('Перемещение между архивами', 'Сначала извлеките файлы в обычную папку, затем добавьте их в другой архив.');
+      return;
+    }
+    if (dest.startsWith('archive://')) {
+      void runArchiveCommand('Добавление файлов в архив', () => window.pos.addArchiveEntries(src, dest)).then(err => {
+        if (err) void messageDialog('Ошибка добавления в архив', escapeHtml(err));
+        else startOp('deletePerm', src, '');
+      });
+    } else if (src.every(p => p.startsWith('archive://'))) {
+      void runArchiveCommand('Извлечение файлов', () => window.pos.extractArchiveEntries(src, dest)).then(err => {
+        if (err) { void messageDialog('Ошибка извлечения файлов', escapeHtml(err)); return; }
+        void panel().refresh(); void otherPanel().refresh();
+        void messageDialog('Файлы извлечены', 'Исходные файлы оставлены в архиве. При совпадении имён существующие файлы назначения пропускаются.');
+      });
+    } else startOp('move', src, dest);
   });
 }
 
@@ -419,9 +485,12 @@ function doMkdir(): void {
   void promptDialog('Создание папки', 'Имя папки (можно с путём):', '').then(name => {
     if (!name) return;
     const full = name.includes('\\') || name.includes('/')
-      ? name
-      : (p.path.endsWith('\\') ? p.path + name : p.path + '\\' + name);
-    void window.pos.mkdir(full).then(err => {
+      ? p.resolvePathInput(name)
+      : joinPath(p.path, name);
+    const create = full.startsWith('archive://')
+      ? runArchiveCommand('Создание папки в архиве', () => window.pos.createArchiveFolder(full))
+      : window.pos.mkdir(full);
+    void create.then(err => {
       if (err) void messageDialog('Ошибка создания папки', escapeHtml(err));
       void p.refresh();
     });
@@ -431,8 +500,15 @@ function doMkdir(): void {
 function doDelete(preselectPerm: boolean): void {
   const src = panel().selectedPaths();
   if (!src.length) return;
-  void deleteDialog(src, preselectPerm).then(answer => {
-    if (answer === 'trash') startOp('trash', src, '');
+  const archiveEntries = src.every(p => p.startsWith('archive://'));
+  void deleteDialog(src, preselectPerm, archiveEntries).then(answer => {
+    if (src.every(p => p.startsWith('archive://'))) {
+      if (answer !== 'perm') return;
+      void runArchiveCommand('Удаление файлов из архива', () => window.pos.deleteArchiveEntries(src)).then(err => {
+        if (err) void messageDialog('Ошибка удаления из архива', escapeHtml(err));
+        else void panel().refresh();
+      });
+    } else if (answer === 'trash') startOp('trash', src, '');
     else if (answer === 'perm') startOp('deletePerm', src, '');
   });
 }
@@ -441,9 +517,12 @@ function doRename(): void {
   const p = panel();
   const cur = p.currentPath();
   if (!cur) return;
-  void promptDialog('Переименование', 'Новое имя:', cur).then(newPath => {
+  void promptDialog('Переименование', 'Новое имя:', basename(cur)).then(newPath => {
     if (!newPath) return;
-    void window.pos.rename(cur, newPath).then(err => {
+    const rename = cur.startsWith('archive://')
+      ? runArchiveCommand('Переименование в архиве', () => window.pos.renameArchiveEntry(cur, newPath))
+      : window.pos.rename(cur, newPath);
+    void rename.then(err => {
       if (err) void messageDialog('Ошибка переименования', escapeHtml(err));
       void p.refresh();
     });
@@ -454,9 +533,9 @@ function doView(): void {
   const p = panel();
   const cur = p.visible()[p.cursor];
   if (!cur || cur.name === '..') return;
-  const full = p.path.endsWith('\\') ? p.path + cur.name : p.path + '\\' + cur.name;
+  const full = joinPath(p.path, cur.name);
   if (cur.isDir) return;
-  void viewerDialog(full);
+  void resolveViewPath(full).then(local => { if (local) void viewerDialog(local); });
 }
 
 function swapPanels(): void {
@@ -479,7 +558,7 @@ function updateStatus(): void {
   const right = statusTextFor(panel(1));
   document.getElementById('status-left')!.innerHTML = left;
   document.getElementById('status-right')!.innerHTML = right;
-  document.getElementById('command-prompt')!.textContent = panel().path + '>';
+  document.getElementById('command-prompt')!.textContent = displayPath(panel().path) + '>';
   saveView();
 }
 
@@ -487,7 +566,8 @@ function statusTextFor(p: Panel): string {
   if (p.error) return `<span class="st-error">${escapeHtml(p.error)}</span>`;
   const s = p.countSummary();
   const sel = p.idx === app.active ? p.selectedSummary() : null;
-  const letter = p.path.slice(0, 2).toUpperCase();
+  const archive = archivePathParts(p.path);
+  const letter = (archive?.archive.slice(0, 2) ?? p.path.slice(0, 2)).toUpperCase();
   const drive = p.drives.find(d => d.letter.toUpperCase() === letter);
   const driveLabel = drive?.label ? `[${escapeHtml(drive.label)}]` : escapeHtml(letter);
   const freeTxt = p.total > 0 ? `${fmtBytes(p.free)} из ${fmtBytes(p.total)} свободно` : '';
@@ -504,12 +584,7 @@ function buildFKeyBar(): void {
   const keys: Array<[string, string, () => void]> = [
     ['F3', 'Просмотр', doView],
     ['F4', 'Правка', () => {
-      const p = panel();
-      const cur = p.visible()[p.cursor];
-      if (cur && cur.name !== '..' && !cur.isDir) {
-        const full = p.path.endsWith('\\') ? p.path + cur.name : p.path + '\\' + cur.name;
-        void window.pos.openPath(full).then(err => { if (err) void messageDialog('Ошибка', escapeHtml(err)); });
-      }
+      editCurrent();
     }],
     ['F5', 'Копирование', doCopy],
     ['F6', 'Перемещение', doMove],
@@ -608,15 +683,7 @@ function handleFKey(key: string, ev: KeyboardEvent): boolean {
   switch (key) {
     case 'F2': void panel().refresh(); return true;
     case 'F3': doView(); return true;
-    case 'F4': {
-      const p = panel();
-      const cur = p.visible()[p.cursor];
-      if (cur && cur.name !== '..' && !cur.isDir) {
-        const full = p.path.endsWith('\\') ? p.path + cur.name : p.path + '\\' + cur.name;
-        void window.pos.openPath(full).then(err => { if (err) void messageDialog('Ошибка', escapeHtml(err)); });
-      }
-      return true;
-    }
+    case 'F4': editCurrent(); return true;
     case 'F5': doCopy(); return true;
     case 'F6': doMove(); return true;
     case 'F7': doMkdir(); return true;

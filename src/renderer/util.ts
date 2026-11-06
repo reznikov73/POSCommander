@@ -30,6 +30,13 @@ export function fmtDate(ms: number): string {
 
 /** Канонический вид пути: без завершающего \, кроме корней дисков (C:\) */
 export function normalizePath(p: string): string {
+  if (p.startsWith('archive://')) {
+    const split = p.indexOf('!/');
+    if (split < 0) return p;
+    const root = p.slice(0, split + 2);
+    const inner = p.slice(split + 2).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    return root + inner;
+  }
   let r = p.trim().replace(/\//g, '\\');
   while (r.length > 1 && r.endsWith('\\')) r = r.slice(0, -1);
   if (/^[a-zA-Z]:$/.test(r)) r += '\\';
@@ -39,12 +46,21 @@ export function normalizePath(p: string): string {
 /** Корень диска (C:\) или корень UNC-шары (\\server\share) */
 export function isRoot(p: string): boolean {
   const n = normalizePath(p);
+  if (n.startsWith('archive://')) return n.endsWith('!/');
   return /^[a-zA-Z]:\\$/.test(n) || /^\\\\[^\\]+\\[^\\]+$/.test(n);
 }
 
 /** Родительский путь; для корня диска возвращает сам корень */
 export function parentOf(p: string): string {
   const norm = normalizePath(p);
+  if (norm.startsWith('archive://')) {
+    const split = norm.indexOf('!/');
+    const root = norm.slice(0, split + 2);
+    const inner = norm.slice(split + 2);
+    if (!inner) return norm;
+    const idx = inner.lastIndexOf('/');
+    return root + (idx < 0 ? '' : inner.slice(0, idx));
+  }
   if (/^[a-zA-Z]:\\$/.test(norm)) return norm;
   const idx = norm.lastIndexOf('\\');
   if (idx <= 2) return norm.slice(0, 2) + '\\';
@@ -53,11 +69,35 @@ export function parentOf(p: string): string {
 
 export function joinPath(a: string, b: string): string {
   const na = normalizePath(a);
+  if (na.startsWith('archive://')) return na.endsWith('!/') ? na + b.replace(/\\/g, '/') : na + '/' + b.replace(/\\/g, '/');
   return na.endsWith('\\') ? na + b : na + '\\' + b;
+}
+
+export function archiveRootPath(archiveFile: string): string {
+  return `archive://${encodeURIComponent(normalizePath(archiveFile))}!/`;
+}
+
+export function archivePathParts(p: string): { archive: string; inner: string } | null {
+  if (!p.startsWith('archive://')) return null;
+  const split = p.indexOf('!/');
+  if (split < 0) return null;
+  try { return { archive: decodeURIComponent(p.slice('archive://'.length, split)), inner: p.slice(split + 2).replace(/\\/g, '/') }; }
+  catch { return null; }
+}
+
+export function displayPath(p: string): string {
+  const archive = archivePathParts(p);
+  return archive ? archive.archive + (archive.inner ? '\\' + archive.inner.replace(/\//g, '\\') : '') : p;
 }
 
 export function basename(p: string): string {
   const n = normalizePath(p);
+  if (n.startsWith('archive://')) {
+    const inner = n.slice(n.indexOf('!/') + 2);
+    if (inner) return inner.slice(inner.lastIndexOf('/') + 1);
+    const parts = archivePathParts(n);
+    return parts?.archive.slice(Math.max(parts.archive.lastIndexOf('\\'), parts.archive.lastIndexOf('/')) + 1) ?? n;
+  }
   const idx = n.lastIndexOf('\\');
   return idx === -1 ? n : n.slice(idx + 1);
 }

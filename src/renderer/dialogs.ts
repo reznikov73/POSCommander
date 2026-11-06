@@ -242,9 +242,9 @@ export function archiveBusyDialog(title: string): DialogHandle {
 // --------------------------------------------------------------
 
 /** Подтверждение удаления. 'trash' | 'perm' | null */
-export function deleteDialog(paths: string[], preselectPerm: boolean): Promise<'trash' | 'perm' | null> {
+export function deleteDialog(paths: string[], preselectPerm: boolean, archiveEntries = false): Promise<'trash' | 'perm' | null> {
   return new Promise((resolve) => {
-    const { root, body } = frame('Удаление', `
+    const { root, body } = frame(archiveEntries ? 'Удаление из архива' : 'Удаление', `
       <div class="dlg-label">Удалить ${paths.length === 1
         ? `«${escapeHtml(basename(paths[0]))}»`
         : `объекты (${paths.length} шт.)`}?</div>
@@ -257,18 +257,21 @@ export function deleteDialog(paths: string[], preselectPerm: boolean): Promise<'
       handle.close();
       resolve(a);
     };
-    body.appendChild(buttonRow([
+    body.appendChild(buttonRow(archiveEntries ? [
+      { label: 'Удалить из архива', onClick: () => answer('perm'), primary: true },
+      { label: 'Отмена', onClick: () => answer(null) },
+    ] : [
       { label: 'В корзину', onClick: () => answer('trash') },
       { label: 'Навсегда', onClick: () => answer('perm'), primary: preselectPerm },
       { label: 'Отмена', onClick: () => answer(null), primary: !preselectPerm },
     ]));
     root.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') answer(preselectPerm ? 'perm' : 'trash');
+      if (e.key === 'Enter') answer(archiveEntries || preselectPerm ? 'perm' : 'trash');
     });
     const handle = dialogs.open(root);
     setTimeout(() => {
       const btns = body.querySelectorAll('.dlg-btn');
-      (btns[preselectPerm ? 1 : 2] as HTMLElement)?.focus();
+      (btns[archiveEntries ? 0 : preselectPerm ? 1 : 2] as HTMLElement)?.focus();
     }, 0);
   });
 }

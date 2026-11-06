@@ -1,5 +1,5 @@
 import { Entry, Drive, SortBy } from './types.js';
-import { ROW_H, fmtBytes, fmtDate, naturalCmp, parentOf, joinPath, isRoot, normalizePath, iconFor, extOf } from './util.js';
+import { ROW_H, fmtBytes, fmtDate, naturalCmp, parentOf, joinPath, isRoot, normalizePath, iconFor, extOf, archivePathParts, archiveRootPath, basename, displayPath } from './util.js';
 
 export interface PanelSort { by: SortBy; asc: boolean }
 
@@ -105,10 +105,10 @@ export class Panel {
       ev.stopPropagation();
       if (ev.key === 'Enter') {
         void this.setPath(this.pathInput.value).then(ok => {
-          if (!ok) this.pathInput.value = this.path;
+          if (!ok) this.pathInput.value = displayPath(this.path);
         });
       } else if (ev.key === 'Escape') {
-        this.pathInput.value = this.path;
+        this.pathInput.value = displayPath(this.path);
         this.pathInput.blur();
       }
     });
@@ -188,7 +188,7 @@ export class Panel {
 
   private renderPathHistory(): void {
     this.pathHistoryEl.replaceChildren(...this.pathHistory.map(path => {
-      const option = document.createElement('option'); option.value = path; return option;
+      const option = document.createElement('option'); option.value = displayPath(path); return option;
     }));
   }
 
@@ -206,7 +206,7 @@ export class Panel {
       this.entries = res.entries;
       if (res.path) this.path = normalizePath(res.path);
     }
-    this.pathInput.value = this.path;
+    this.pathInput.value = displayPath(this.path);
     this.rememberPath(this.path);
     // убираем из выделения исчезнувшие имена
     const names = new Set(this.entries.map(e => e.name));
@@ -254,7 +254,7 @@ export class Panel {
     this.entries = res.entries;
     this.directorySizes.clear();
     this.pendingDirectorySizes.clear();
-    this.pathInput.value = this.path;
+    this.pathInput.value = displayPath(this.path);
     this.sortEntries();
     this.cursor = 0;
     this.render();
@@ -266,10 +266,30 @@ export class Panel {
   }
 
   resolvePathInput(input: string): string {
+    if (input.trim().startsWith('archive://')) return normalizePath(input.trim());
     const raw = input.trim().replace(/\//g, '\\');
     if (!raw) return this.path;
+    const archive = archivePathParts(this.path);
+    if (archive) {
+      const archiveRoot = archive.archive.replace(/\//g, '\\').replace(/\\+$/g, '');
+      if (raw.toLowerCase() === archiveRoot.toLowerCase()) return archiveRootPath(archive.archive);
+      if (raw.toLowerCase().startsWith(archiveRoot.toLowerCase() + '\\')) {
+        return archiveRootPath(archive.archive) + raw.slice(archiveRoot.length + 1).replace(/\\/g, '/');
+      }
+    }
+    const archiveInput = /^(.+\.(?:zip|7z|tar|gz|tgz|bz2|xz|wim|iso|cab|rar))(?:\\(.*))?$/i.exec(raw);
+    if (archiveInput) return archiveRootPath(archiveInput[1]) + (archiveInput[2] ?? '').replace(/\\/g, '/');
     if (/^[a-zA-Z]:$/.test(raw)) return raw + '\\';
     if (/^[a-zA-Z]:\\/.test(raw) || raw.startsWith('\\\\')) return normalizePath(raw);
+    if (archive) {
+      const parts = raw.startsWith('\\') ? [] : archive.inner.split('/').filter(Boolean);
+      for (const part of raw.replace(/^\\+/, '').split('\\')) {
+        if (!part || part === '.') continue;
+        if (part === '..') parts.pop();
+        else parts.push(part);
+      }
+      return archiveRootPath(archive.archive) + parts.join('/');
+    }
     const parts = raw.startsWith('\\')
       ? [this.path.slice(0, 2)]
       : this.path.split('\\').filter(Boolean);
@@ -310,7 +330,8 @@ export class Panel {
   }
 
   updateDriveButton(): void {
-    const letter = this.path.slice(0, 2).toUpperCase();
+    const archive = archivePathParts(this.path);
+    const letter = (archive?.archive.slice(0, 2) ?? this.path.slice(0, 2)).toUpperCase();
     const drv = this.drives.find(d => d.letter === letter);
     this.driveBtn.textContent = drv ? (drv.label ? `${letter} ${drv.label}` : letter) : (letter + '?');
     this.renderTabs();
@@ -330,7 +351,7 @@ export class Panel {
     this.tabs.forEach((tabPath, i) => {
       const b = document.createElement('button');
       b.className = 'path-tab' + (i === this.activeTab ? ' active' : '');
-      b.textContent = tabPath.split('\\').filter(Boolean).pop() || tabPath;
+      b.textContent = basename(tabPath) || tabPath;
       b.title = tabPath;
       b.addEventListener('click', () => { this.hooks.activate(this); this.activeTab = i; void this.setPath(tabPath); });
       this.tabStrip.appendChild(b);

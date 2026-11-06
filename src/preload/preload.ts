@@ -7,6 +7,12 @@ export interface PosApi {
   fileIcons(paths: string[]): Promise<string[]>;
   createArchive(srcs: string[], archivePath: string, format: 'zip' | '7z' | 'tar', cwd: string): Promise<string>;
   extractArchives(archives: string[], destination: string): Promise<string>;
+  extractArchiveEntries(entries: string[], destination: string): Promise<string>;
+  deleteArchiveEntries(entries: string[]): Promise<string>;
+  addArchiveEntries(srcs: string[], destination: string): Promise<string>;
+  renameArchiveEntry(entry: string, newName: string): Promise<string>;
+  createArchiveFolder(path: string): Promise<string>;
+  extractArchiveFileForView(path: string): Promise<{ path?: string; error?: string }>;
   statfs(path: string): Promise<{ total: number; free: number; error?: string }>;
   drives(): Promise<PosDrive[]>;
   mkdir(path: string): Promise<string>;
@@ -31,6 +37,12 @@ const api: PosApi = {
   fileIcons: (paths) => ipcRenderer.invoke('fs:fileIcons', paths),
   createArchive: (srcs, archivePath, format, cwd) => ipcRenderer.invoke('archive:create', { srcs, archivePath, format, cwd }),
   extractArchives: (archives, destination) => ipcRenderer.invoke('archive:extract', { archives, destination }),
+  extractArchiveEntries: (entries, destination) => ipcRenderer.invoke('archive:extractEntries', { entries, destination }),
+  deleteArchiveEntries: (entries) => ipcRenderer.invoke('archive:deleteEntries', entries),
+  addArchiveEntries: (srcs, destination) => ipcRenderer.invoke('archive:addEntries', { srcs, destination }),
+  renameArchiveEntry: (entry, newName) => ipcRenderer.invoke('archive:renameEntry', { entry, newName }),
+  createArchiveFolder: (p) => ipcRenderer.invoke('archive:createFolder', p),
+  extractArchiveFileForView: (p) => ipcRenderer.invoke('archive:extractForView', p),
   statfs: (p) => ipcRenderer.invoke('fs:statfs', p),
   drives: () => ipcRenderer.invoke('fs:drives'),
   mkdir: (p) => ipcRenderer.invoke('fs:mkdir', p),
