@@ -2,7 +2,9 @@
   "version": "2.0.0",
   "tasks": [
     {
+      // Собирает TypeScript-код перед отладкой; это задача сборки по умолчанию.
       "label": "POSCommander: Build",
+      "detail": "Собрать исходный код приложения (обычно перед запуском отладки)",
       "type": "npm",
       "script": "build",
       "group": {
@@ -12,19 +14,25 @@
       "problemMatcher": ["$tsc"]
     },
     {
+      // Запускает приложение для обычной работы без отладчика.
       "label": "POSCommander: Run",
+      "detail": "Запустить POSCommander",
       "type": "npm",
       "script": "start",
       "problemMatcher": []
     },
     {
+      // Создаёт готовую Windows-программу и интерактивный установщик.
       "label": "POSCommander: Build EXE and installer",
+      "detail": "Собрать EXE и установщик Windows",
       "type": "npm",
       "script": "build:exe",
       "problemMatcher": []
     },
     {
+      // Скачивает пакеты, необходимые проекту для сборки и запуска.
       "label": "POSCommander: Install dependencies",
+      "detail": "Установить зависимости проекта (npm install)",
       "type": "shell",
       "command": "npm install",
       "problemMatcher": []
