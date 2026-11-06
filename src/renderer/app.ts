@@ -60,6 +60,15 @@ function init(): void {
       driveMenu: (panel, anchor) => openDriveMenu(panel, anchor),
       activate: (panel) => setActive(panel.idx),
       statusChanged: updateStatus,
+      fileAction: (owner, action) => {
+        setActive(owner.idx);
+        if (action === 'open') { const entry = owner.visible()[owner.cursor]; if (entry) openEntry(owner, entry); }
+        else if (action === 'copy') doCopy();
+        else if (action === 'move') doMove();
+        else if (action === 'rename') doRename();
+        else doDelete(false);
+      },
+      dropFiles: (sourceIdx, paths, target, destination, forceCopy) => dropFiles(sourceIdx, paths, target, destination, forceCopy),
     });
     app.panels.push(p);
   }
@@ -497,6 +506,31 @@ function startOp(kind: 'copy' | 'move' | 'deletePerm' | 'trash', srcs: string[],
   });
 }
 
+function dropFiles(sourceIdx: 0 | 1, paths: string[], target: Panel, destination: string, forceCopy: boolean): void {
+  if (!paths.length) return;
+  setActive(target.idx);
+  const physicalPath = (value: string) => archivePathParts(value)?.archive ?? value;
+  const rootKey = (value: string) => {
+    const p = physicalPath(value).replace(/\//g, '\\');
+    const drive = /^[a-z]:/i.exec(p);
+    if (drive) return drive[0].toLowerCase();
+    if (p.startsWith('\\\\')) return p.split('\\').slice(0, 4).join('\\').toLowerCase();
+    return p.toLowerCase();
+  };
+  const sameVolume = paths.every(src => rootKey(src) === rootKey(destination));
+  const copy = forceCopy || !sameVolume;
+  const destLower = destination.replace(/\\+$/, '').toLocaleLowerCase('ru');
+  if (!copy && paths.every(src => parentOf(src).replace(/\\+$/, '').toLocaleLowerCase('ru') === destLower)) return;
+  if (paths.some(src => {
+    const sourcePath = src.replace(/\\+$/, '').toLocaleLowerCase('ru');
+    return destLower === sourcePath || destLower.startsWith(sourcePath + '\\');
+  })) {
+    void messageDialog('Перетаскивание файлов', 'Нельзя скопировать или переместить папку внутрь самой себя.');
+    return;
+  }
+  startOp(copy ? 'copy' : 'move', paths, destination);
+}
+
 async function runArchiveCommand(title: string, run: () => Promise<string>): Promise<string> {
   const busy = archiveBusyDialog(title);
   try { return await run(); }
@@ -622,7 +656,7 @@ function doRename(): void {
     if (!newPath) return;
     const rename = cur.startsWith('archive://')
       ? runArchiveCommand('Переименование в архиве', () => window.pos.renameArchiveEntry(cur, newPath))
-      : window.pos.rename(cur, newPath);
+      : window.pos.rename(cur, joinPath(parentOf(cur), newPath));
     void rename.then(err => {
       if (err) void messageDialog('Ошибка переименования', escapeHtml(err));
       void p.refresh();

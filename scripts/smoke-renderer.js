@@ -103,6 +103,33 @@
     if (tab) tab.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 30, clientY: 30 }));
     out.tabContextMenu = !!document.querySelector('.tab-context-menu');
     document.querySelector('.tab-context-menu')?.remove();
+    // Перетаскивание между панелями должно запускать штатную операцию перемещения.
+    const dragTarget = tmp + '\\drag-target';
+    await p.mkdir(dragTarget);
+    const sourcePanel = document.querySelector('#panel0 .list');
+    const targetPanel = document.querySelector('#panel1 .list');
+    for (const [id, targetPath] of [['panel0', tmp + '\\moved-from-archive'], ['panel1', dragTarget]]) {
+      const input = document.querySelector(`#${id} .path-input`);
+      input.value = targetPath;
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    const sourceRow = sourcePanel?.querySelector('.row:not(.dotdot)');
+    if (sourceRow && targetPanel && typeof DataTransfer !== 'undefined') {
+      const dt = new DataTransfer();
+      sourceRow.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      targetPanel.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      const dd = await waitDone();
+      out.dragErrors = dd.errors || [];
+      out.dragMovedFile = (await p.list(dragTarget)).entries.length === 1;
+    } else out.dragMovedFile = false;
+    const fileRow = targetPanel?.querySelector('.row:not(.dotdot)') || sourceRow;
+    if (fileRow) {
+      fileRow.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 35, clientY: 35 }));
+      out.fileContextMenu = !!document.querySelector('.file-context-menu');
+      out.fileContextActions = [...document.querySelectorAll('.file-context-menu button')].map(button => button.textContent);
+      document.querySelector('.file-context-menu')?.remove();
+    }
     const activePanel = document.querySelector('.panel.active');
     const pathInput = activePanel?.querySelector('.path-input');
     if (pathInput) {

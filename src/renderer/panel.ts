@@ -59,6 +59,8 @@ export class Panel {
       driveMenu: (panel: Panel, anchor: HTMLElement) => void;
       activate: (panel: Panel) => void;
       statusChanged: () => void;
+      fileAction: (panel: Panel, action: 'open' | 'copy' | 'move' | 'rename' | 'delete') => void;
+      dropFiles: (sourceIdx: 0 | 1, paths: string[], target: Panel, destination: string, copy: boolean) => void;
     },
   ) {
     container.classList.add('panel');
@@ -169,6 +171,74 @@ export class Panel {
       const entry = this.visible()[Number(row.dataset.i)];
       if (entry) this.hooks.open(this, entry);
     });
+    this.listEl.addEventListener('contextmenu', ev => {
+      const row = (ev.target as HTMLElement).closest('.row') as HTMLElement | null;
+      if (!row) return;
+      ev.preventDefault();
+      this.hooks.activate(this);
+      const i = Number(row.dataset.i), entry = this.visible()[i];
+      if (!entry || entry.name === '..') return;
+      this.cursor = i;
+      if (!this.sel.has(entry.name)) { this.sel.clear(); this.sel.add(entry.name); }
+      this.anchor = i;
+      this.syncRowStates(); this.hooks.statusChanged();
+      this.showFileContextMenu(ev.clientX, ev.clientY);
+    });
+    this.listEl.addEventListener('dragstart', ev => {
+      const row = (ev.target as HTMLElement).closest('.row') as HTMLElement | null;
+      const entry = row ? this.visible()[Number(row.dataset.i)] : null;
+      if (!row || !entry || entry.name === '..' || !ev.dataTransfer) { ev.preventDefault(); return; }
+      this.hooks.activate(this);
+      this.cursor = Number(row.dataset.i);
+      if (!this.sel.has(entry.name)) { this.sel.clear(); this.sel.add(entry.name); }
+      this.syncRowStates();
+      ev.dataTransfer.setData('application/x-poscommander-files', JSON.stringify({ panel: this.idx, paths: this.selectedPaths() }));
+      ev.dataTransfer.effectAllowed = 'copyMove';
+    });
+    this.listEl.addEventListener('dragover', ev => {
+      if (ev.dataTransfer?.types.includes('application/x-poscommander-files')) {
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = ev.ctrlKey ? 'copy' : 'move';
+        (ev.target as HTMLElement).closest('.row')?.classList.add('drop-target');
+      }
+    });
+    this.listEl.addEventListener('dragleave', ev => (ev.target as HTMLElement).closest('.row')?.classList.remove('drop-target'));
+    this.listEl.addEventListener('drop', ev => {
+      if (!ev.dataTransfer) return;
+      const payload = ev.dataTransfer.getData('application/x-poscommander-files');
+      if (!payload) return;
+      ev.preventDefault(); ev.stopPropagation();
+      this.listEl.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+      try {
+        const data = JSON.parse(payload) as { panel: 0 | 1; paths: string[] };
+      const row = (ev.target as HTMLElement).closest('.row') as HTMLElement | null;
+        const entry = row ? this.visible()[Number(row.dataset.i)] : null;
+        const destination = entry?.name === '..' ? parentOf(this.path)
+          : entry?.isDir ? joinPath(this.path, entry.name) : this.path;
+        this.hooks.dropFiles(data.panel, data.paths, this, destination, ev.ctrlKey);
+      } catch { /* игнорируем внешние и повреждённые данные перетаскивания */ }
+    });
+  }
+
+  private showFileContextMenu(x: number, y: number): void {
+    document.querySelector('.file-context-menu')?.remove();
+    const menu = document.createElement('div'); menu.className = 'file-context-menu';
+    const actions: Array<[string, 'open' | 'copy' | 'move' | 'rename' | 'delete']> = [
+      ['Открыть', 'open'], ['Копировать…', 'copy'], ['Переместить…', 'move'],
+      ['Переименовать', 'rename'], ['Удалить', 'delete'],
+    ];
+    for (const [label, action] of actions) {
+      const item = document.createElement('button'); item.type = 'button'; item.textContent = label;
+      item.addEventListener('click', () => { menu.remove(); this.hooks.fileAction(this, action); });
+      menu.appendChild(item);
+    }
+    menu.style.left = `${Math.min(x, window.innerWidth - 220)}px`;
+    menu.style.top = `${Math.min(y, window.innerHeight - 180)}px`;
+    document.body.appendChild(menu);
+    const close = (event: MouseEvent) => {
+      if (!menu.contains(event.target as Node)) { menu.remove(); document.removeEventListener('mousedown', close, true); }
+    };
+    document.addEventListener('mousedown', close, true);
   }
 
   /** Видимый список: ".." сверху (вне корня) + отсортированные записи */
@@ -544,6 +614,7 @@ export class Panel {
       const e = vis[i];
       const row = document.createElement('div');
       row.className = 'row';
+      row.draggable = true;
       row.dataset.i = String(i);
       if (i === this.cursor) row.classList.add('cursor');
       const dotdot = e.name === '..';
