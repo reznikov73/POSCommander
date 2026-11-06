@@ -59,7 +59,7 @@ export class Panel {
       driveMenu: (panel: Panel, anchor: HTMLElement) => void;
       activate: (panel: Panel) => void;
       statusChanged: () => void;
-      fileAction: (panel: Panel, action: 'open' | 'copy' | 'move' | 'rename' | 'delete') => void;
+      fileAction: (panel: Panel, action: 'open' | 'copy' | 'move' | 'rename' | 'delete' | 'extract') => void;
       dropFiles: (sourceIdx: 0 | 1, paths: string[], target: Panel, destination: string, copy: boolean) => void;
     },
   ) {
@@ -223,10 +223,14 @@ export class Panel {
   private showFileContextMenu(x: number, y: number): void {
     document.querySelector('.file-context-menu')?.remove();
     const menu = document.createElement('div'); menu.className = 'file-context-menu';
-    const actions: Array<[string, 'open' | 'copy' | 'move' | 'rename' | 'delete']> = [
+    const actions: Array<[string, 'open' | 'copy' | 'move' | 'rename' | 'delete' | 'extract']> = [
       ['Открыть', 'open'], ['Копировать…', 'copy'], ['Переместить…', 'move'],
-      ['Переименовать', 'rename'], ['Удалить', 'delete'],
     ];
+    const current = this.visible()[this.cursor];
+    if (current && !current.isDir && /\.(zip|7z|tar|gz|tgz|bz2|xz|wim|iso|cab|rar)$/i.test(current.name)) {
+      actions.push(['Распаковать…', 'extract']);
+    }
+    actions.push(['Переименовать', 'rename'], ['Удалить', 'delete']);
     for (const [label, action] of actions) {
       const item = document.createElement('button'); item.type = 'button'; item.textContent = label;
       item.addEventListener('click', () => { menu.remove(); this.hooks.fileAction(this, action); });

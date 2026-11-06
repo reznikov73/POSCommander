@@ -66,6 +66,7 @@ function init(): void {
         else if (action === 'copy') doCopy();
         else if (action === 'move') doMove();
         else if (action === 'rename') doRename();
+        else if (action === 'extract') doExtract();
         else doDelete(false);
       },
       dropFiles: (sourceIdx, paths, target, destination, forceCopy) => dropFiles(sourceIdx, paths, target, destination, forceCopy),

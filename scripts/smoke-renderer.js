@@ -130,6 +130,16 @@
       out.fileContextActions = [...document.querySelectorAll('.file-context-menu button')].map(button => button.textContent);
       document.querySelector('.file-context-menu')?.remove();
     }
+    const archivePathInput = document.querySelector('#panel0 .path-input');
+    archivePathInput.value = tmp;
+    archivePathInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 250));
+    const archiveRow = [...document.querySelectorAll('#panel0 .row')].find(row => row.querySelector('.c-name')?.textContent === 'smoke.zip');
+    if (archiveRow) {
+      archiveRow.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 35, clientY: 35 }));
+      out.archiveContextExtract = [...document.querySelectorAll('.file-context-menu button')].some(button => button.textContent === 'Распаковать…');
+      document.querySelector('.file-context-menu')?.remove();
+    } else out.archiveContextExtract = false;
     const activePanel = document.querySelector('.panel.active');
     const pathInput = activePanel?.querySelector('.path-input');
     if (pathInput) {
