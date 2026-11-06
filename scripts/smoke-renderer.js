@@ -4,6 +4,7 @@
   const p = window.pos;
   const src = "__SRC__";
   const tmp = "__TMP__";
+  const asarFile = "__ASAR_FILE__";
   const evs = [];
   const conflicts = [];
   const progress = [];
@@ -37,6 +38,21 @@
   try {
     await p.mkdir(tmp);
     out.before = (await p.list(src)).entries.length;
+
+    // Electron must expose ASAR archives as ordinary physical files in the file manager.
+    const asarParent = asarFile.slice(0, asarFile.lastIndexOf('\\'));
+    const asarEntry = (await p.list(asarParent)).entries.find(entry => entry.name.toLowerCase() === 'default_app.asar');
+    out.asarListedAsFile = !!asarEntry && !asarEntry.isDir && asarEntry.size > 0;
+    const asarCopyDir = tmp + '\\asar-copy';
+    await p.mkdir(asarCopyDir);
+    await p.startOp('copy', [asarFile], asarCopyDir);
+    const asarCopyDone = await waitDone();
+    out.asarCopyErrors = asarCopyDone.errors || [];
+    const copiedAsar = asarCopyDir + '\\default_app.asar';
+    out.asarCopied = (await p.list(asarCopyDir)).entries.some(entry => entry.name === 'default_app.asar' && !entry.isDir && entry.size > 0);
+    await p.startOp('deletePerm', [copiedAsar], '');
+    const asarDeleteDone = await waitDone();
+    out.asarDeleteErrors = asarDeleteDone.errors || [];
 
     // 1) копирование каталога: копия появляется как tmp\renderer\...
     await p.startOp('copy', [src], tmp);
@@ -144,6 +160,11 @@
       fileRow.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 35, clientY: 35 }));
       out.fileContextMenu = !!document.querySelector('.file-context-menu');
       out.fileContextActions = [...document.querySelectorAll('.file-context-menu button')].map(button => button.textContent);
+      const propsButton = [...document.querySelectorAll('.file-context-menu button')].find(button => button.textContent === 'Свойства');
+      propsButton?.click();
+      await new Promise(resolve => setTimeout(resolve, 200));
+      out.filePropertiesDialog = !!document.querySelector('.properties-table');
+      document.querySelector('.properties-table')?.closest('.dlg-backdrop')?.querySelector('.dlg-btn')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       document.querySelector('.file-context-menu')?.remove();
     }
     const archivePathInput = document.querySelector('#panel0 .path-input');

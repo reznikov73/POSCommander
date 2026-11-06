@@ -1,8 +1,9 @@
-import * as fsp from 'fs/promises';
-import * as fs from 'fs';
+import * as fs from 'original-fs';
 import * as path from 'path';
 import { BrowserWindow, shell } from 'electron';
 import { describeFsError } from './fsservice';
+
+const fsp = fs.promises;
 
 export type OpKind = 'copy' | 'move' | 'deletePerm' | 'trash';
 

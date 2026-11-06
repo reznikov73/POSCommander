@@ -5,7 +5,7 @@ import {
   dialogs, promptDialog, copyMoveDialog, deleteDialog, progressDialog,
   conflictDialog, messageDialog, viewerDialog, ProgressUi,
   archiveCreateDialog, archiveExtractDialog, archiveBusyDialog,
-  searchDialog,
+  searchDialog, propertiesDialog,
 } from './dialogs.js';
 
 type OpEvent = {
@@ -70,6 +70,7 @@ function init(): void {
         else if (action === 'extract-select') doExtract('select');
         else if (action === 'extract-here') doExtract('here');
         else if (action === 'extract-folder') doExtract('folder');
+        else if (action === 'properties') void doProperties(owner);
         else doDelete(false);
       },
       dropFiles: (sourceIdx, paths, target, destination, forceCopy) => dropFiles(sourceIdx, paths, target, destination, forceCopy),
@@ -687,6 +688,32 @@ function doRename(): void {
       void p.refresh();
     });
   });
+}
+
+async function doProperties(owner: Panel): Promise<void> {
+  const filePath = owner.currentPath();
+  const entry = owner.visible()[owner.cursor];
+  if (!filePath || !entry) return;
+  try {
+    if (filePath.startsWith('archive://')) {
+      const parts = archivePathParts(filePath);
+      await propertiesDialog({
+        name: entry.name, path: parts ? displayPath(parentOf(filePath)) : owner.path,
+        type: entry.isDir ? 'Папка в архиве' : (entry.name.includes('.') ? `${entry.name.split('.').pop()!.toUpperCase()} файл в архиве` : 'Файл в архиве'),
+        isDir: entry.isDir,
+        size: entry.size, created: 0, modified: entry.mtime, accessed: 0,
+        readOnly: true, hidden: entry.name.startsWith('.'), symbolicLink: false,
+      });
+      return;
+    }
+    const info = await window.pos.fileProperties(filePath);
+    const ext = info.name.includes('.') ? info.name.split('.').pop()!.toUpperCase() : '';
+    await propertiesDialog({
+      ...info, path: parentOf(info.path), type: info.isDir ? 'Папка' : (ext ? `${ext} файл` : 'Файл'),
+    });
+  } catch (error) {
+    void messageDialog('Свойства', escapeHtml(String(error)));
+  }
 }
 
 function doSearch(): void {

@@ -20,6 +20,7 @@ export type SortBy = 'name' | 'ext' | 'size' | 'date';
 export interface PosApi {
   list(path: string): Promise<{ path: string; entries: Entry[]; error?: string }>;
   directorySize(path: string): Promise<number>;
+  fileProperties(path: string): Promise<{ path: string; name: string; isDir: boolean; size: number; created: number; modified: number; accessed: number; readOnly: boolean; hidden: boolean; symbolicLink: boolean }>;
   fileIcons(paths: string[]): Promise<string[]>;
   createArchive(srcs: string[], archivePath: string, format: 'zip' | '7z' | 'tar', cwd: string, progressId?: string): Promise<string>;
   extractArchives(archives: string[], destination: string, progressId?: string): Promise<string>;

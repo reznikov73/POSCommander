@@ -473,6 +473,35 @@ export function messageDialog(title: string, html: string): Promise<void> {
   });
 }
 
+export function propertiesDialog(info: {
+  name: string; path: string; type: string; isDir: boolean; size: number; created: number; modified: number; accessed: number;
+  readOnly: boolean; hidden: boolean; symbolicLink: boolean;
+}): Promise<void> {
+  return new Promise(resolve => {
+    const attrs = [info.readOnly ? 'Только чтение' : '', info.hidden ? 'Скрытый' : '', info.symbolicLink ? 'Символическая ссылка' : '']
+      .filter(Boolean).join(', ') || 'Обычный';
+    const row = (label: string, value: string) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`;
+    const { root, body } = frame('Свойства', `
+      <div class="properties-heading">${escapeHtml(info.name)}</div>
+      <table class="properties-table">
+        ${row('Тип', info.type)}
+        ${row('Расположение', info.path)}
+        ${row('Размер', info.isDir ? '<Папка>' : fmtBytes(info.size))}
+        ${row('Создан', info.created ? fmtDate(info.created) : '—')}
+        ${row('Изменён', info.modified ? fmtDate(info.modified) : '—')}
+        ${row('Открыт', info.accessed ? fmtDate(info.accessed) : '—')}
+        ${row('Атрибуты', attrs)}
+      </table>
+    `);
+    const handle = dialogs.open(root, { onClose: () => resolve() });
+    body.appendChild(buttonRow([{ label: 'ОК', primary: true, onClick: () => handle.close() }]));
+    root.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); handle.close(); }
+    });
+    setTimeout(() => (body.querySelector('.dlg-btn') as HTMLElement)?.focus(), 0);
+  });
+}
+
 // --------------------------------------------------------------
 
 /** Быстрый просмотр (F3) */

@@ -1,9 +1,10 @@
-import * as fs from 'fs';
-import * as fsp from 'fs/promises';
+import * as fs from 'original-fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import * as iconv from 'iconv-lite';
+
+const fsp = fs.promises;
 
 const exec = promisify(execFile);
 
@@ -128,6 +129,29 @@ export function describeFsError(e: any, where?: string): string {
 }
 
 export interface StatFsResult { total: number; free: number; error?: string }
+
+export interface FileProperties {
+  path: string;
+  name: string;
+  isDir: boolean;
+  size: number;
+  created: number;
+  modified: number;
+  accessed: number;
+  readOnly: boolean;
+  hidden: boolean;
+  symbolicLink: boolean;
+}
+
+export async function getFileProperties(filePath: string): Promise<FileProperties> {
+  const stat = await fsp.lstat(filePath);
+  const name = path.basename(filePath.replace(/[\\/]+$/, '')) || filePath;
+  return {
+    path: path.resolve(filePath), name, isDir: stat.isDirectory(), size: stat.isDirectory() ? 0 : Number(stat.size),
+    created: stat.birthtimeMs, modified: stat.mtimeMs, accessed: stat.atimeMs,
+    readOnly: (stat.mode & 0o222) === 0, hidden: name.startsWith('.'), symbolicLink: stat.isSymbolicLink(),
+  };
+}
 
 export async function statFs(p: string): Promise<StatFsResult> {
   try {

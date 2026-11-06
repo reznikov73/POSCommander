@@ -391,6 +391,11 @@ html, body {
 .dlg-conflict th { background: var(--head-bg); }
 
 .dlg-msg { max-width: 640px; word-break: break-word; font-size: 12px; }
+.properties-heading { margin: 0 0 10px; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.properties-table { width: 100%; border-collapse: collapse; }
+.properties-table th, .properties-table td { padding: 4px 7px; border-bottom: 1px solid #ddd; text-align: left; vertical-align: top; }
+.properties-table th { width: 115px; color: #555; font-weight: 400; }
+.properties-table td { overflow-wrap: anywhere; }
 
 /* просмотрщик */
 .dlg-viewer-head { font-size: 11px; color: #666; margin-bottom: 8px; }

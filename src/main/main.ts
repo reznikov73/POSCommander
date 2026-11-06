@@ -77,6 +77,7 @@ function createWindow(): void {
       let code = fsSync.readFileSync(scriptPath, 'utf8');
       code = code.replace('"__SRC__"', JSON.stringify(path.join(app.getAppPath(), 'dist', 'renderer')));
       code = code.replace('"__TMP__"', JSON.stringify(path.join(osMod.tmpdir(), 'posc-smoke-test')));
+      code = code.replace('"__ASAR_FILE__"', JSON.stringify(path.join(path.dirname(process.execPath), 'resources', 'default_app.asar')));
       const r = await mainWindow.webContents.executeJavaScript(code, true);
       console.log('[SMOKE-OPS]', JSON.stringify(r, null, 1));
       app.exit(0);
@@ -178,6 +179,7 @@ ipcMain.handle('fs:directorySize', async (_e, p: string) => {
   const parsed = parseArchivePath(p);
   return parsed ? 0 : fsservice.directorySize(p);
 });
+ipcMain.handle('fs:properties', async (_e, p: string) => fsservice.getFileProperties(p));
 ipcMain.handle('fs:fileIcons', async (_e, paths: string[]) => {
   const limited = paths.slice(0, 512);
   const icons = await Promise.all(limited.map(async p => {
