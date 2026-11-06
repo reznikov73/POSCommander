@@ -2,26 +2,44 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "POSCommander: Electron main",
+      // Запускает приложение и отлаживает основную часть Electron (Node.js).
+      "name": "POSCommander: Запуск и отладка приложения",
+      // Тип Node.js используется для главного процесса Electron.
       "type": "node",
+      // VS Code запускает приложение сам.
       "request": "launch",
+      // Рабочая папка — корень открытого проекта.
       "cwd": "${workspaceFolder}",
+      // Исполняемый файл Electron, установленный в зависимостях проекта.
       "runtimeExecutable": "${workspaceFolder}/node_modules/electron/dist/electron.exe",
+      // Открывает порт, к которому можно подключить отладчик интерфейса.
       "runtimeArgs": ["--remote-debugging-port=9222"],
+      // Передаёт Electron текущую папку проекта.
       "args": ["."],
+      // Перед запуском собирает исходный код проекта.
       "preLaunchTask": "POSCommander: Build",
+      // Показывает вывод приложения в консоли отладки.
       "outputCapture": "std",
+      // Позволяет отлаживать TypeScript, связав его с собранным JavaScript.
       "sourceMaps": true,
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
+      // Подключает отладчик также к дочерним процессам Electron.
       "autoAttachChildProcesses": true,
+      // Пропускает внутренний код Node.js при пошаговой отладке.
       "skipFiles": ["<node_internals>/**"]
     },
     {
-      "name": "POSCommander: Attach renderer (start main first)",
+      // Подключается к окну приложения; сначала запустите первую конфигурацию.
+      "name": "POSCommander: Отладка интерфейса (сначала запустить приложение)",
+      // Интерфейс Electron работает на Chromium, поэтому используется отладчик Chrome.
       "type": "pwa-chrome",
+      // Подключается к уже запущенному приложению, не запуская его повторно.
       "request": "attach",
+      // Порт должен совпадать с remote-debugging-port в первой конфигурации.
       "port": 9222,
+      // Папка проекта, в которой отладчик ищет исходники интерфейса.
       "webRoot": "${workspaceFolder}",
+      // Позволяет ставить точки останова в исходниках интерфейса.
       "sourceMaps": true
     }
   ]
