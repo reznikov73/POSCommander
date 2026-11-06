@@ -4,7 +4,7 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 export interface PosApi {
   list(path: string): Promise<{ path: string; entries: PosEntry[]; error?: string }>;
   directorySize(path: string): Promise<number>;
-  fileProperties(path: string): Promise<{ path: string; name: string; isDir: boolean; size: number; created: number; modified: number; accessed: number; readOnly: boolean; hidden: boolean; symbolicLink: boolean }>;
+  showProperties(path: string): Promise<string>;
   fileIcons(paths: string[]): Promise<string[]>;
   createArchive(srcs: string[], archivePath: string, format: 'zip' | '7z' | 'tar', cwd: string, progressId?: string): Promise<string>;
   extractArchives(archives: string[], destination: string, progressId?: string): Promise<string>;
@@ -37,7 +37,7 @@ export interface PosDrive { letter: string; root: string; label: string; type: s
 const api: PosApi = {
   list: (p) => ipcRenderer.invoke('fs:list', p),
   directorySize: (p) => ipcRenderer.invoke('fs:directorySize', p),
-  fileProperties: (p) => ipcRenderer.invoke('fs:properties', p),
+  showProperties: (p) => ipcRenderer.invoke('shell:properties', p),
   fileIcons: (paths) => ipcRenderer.invoke('fs:fileIcons', paths),
   createArchive: (srcs, archivePath, format, cwd, progressId) => ipcRenderer.invoke('archive:create', { srcs, archivePath, format, cwd, progressId }),
   extractArchives: (archives, destination, progressId) => ipcRenderer.invoke('archive:extract', { archives, destination, progressId }),

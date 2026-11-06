@@ -179,7 +179,10 @@ ipcMain.handle('fs:directorySize', async (_e, p: string) => {
   const parsed = parseArchivePath(p);
   return parsed ? 0 : fsservice.directorySize(p);
 });
-ipcMain.handle('fs:properties', async (_e, p: string) => fsservice.getFileProperties(p));
+ipcMain.handle('shell:properties', async (_e, p: string) => {
+  try { await fsservice.showNativeProperties(p); return ''; }
+  catch (e: any) { return e?.message ?? String(e); }
+});
 ipcMain.handle('fs:fileIcons', async (_e, paths: string[]) => {
   const limited = paths.slice(0, 512);
   const icons = await Promise.all(limited.map(async p => {

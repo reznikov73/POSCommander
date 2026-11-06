@@ -695,21 +695,16 @@ async function doProperties(owner: Panel): Promise<void> {
   const entry = owner.visible()[owner.cursor];
   if (!filePath || !entry) return;
   try {
-    if (filePath.startsWith('archive://')) {
-      const parts = archivePathParts(filePath);
-      await propertiesDialog({
-        name: entry.name, path: parts ? displayPath(parentOf(filePath)) : owner.path,
-        type: entry.isDir ? 'Папка в архиве' : (entry.name.includes('.') ? `${entry.name.split('.').pop()!.toUpperCase()} файл в архиве` : 'Файл в архиве'),
-        isDir: entry.isDir,
-        size: entry.size, created: 0, modified: entry.mtime, accessed: 0,
-        readOnly: true, hidden: entry.name.startsWith('.'), symbolicLink: false,
-      });
+    if (!filePath.startsWith('archive://')) {
+      const error = await window.pos.showProperties(filePath);
+      if (error) void messageDialog('Свойства', escapeHtml(error));
       return;
     }
-    const info = await window.pos.fileProperties(filePath);
-    const ext = info.name.includes('.') ? info.name.split('.').pop()!.toUpperCase() : '';
     await propertiesDialog({
-      ...info, path: parentOf(info.path), type: info.isDir ? 'Папка' : (ext ? `${ext} файл` : 'Файл'),
+      name: entry.name, path: displayPath(parentOf(filePath)),
+      type: entry.isDir ? 'Папка в архиве' : (entry.name.includes('.') ? `${entry.name.split('.').pop()!.toUpperCase()} файл в архиве` : 'Файл в архиве'),
+      isDir: entry.isDir, size: entry.size, created: 0, modified: entry.mtime, accessed: 0,
+      readOnly: true, hidden: entry.name.startsWith('.'), symbolicLink: false,
     });
   } catch (error) {
     void messageDialog('Свойства', escapeHtml(String(error)));

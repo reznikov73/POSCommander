@@ -160,11 +160,7 @@
       fileRow.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 35, clientY: 35 }));
       out.fileContextMenu = !!document.querySelector('.file-context-menu');
       out.fileContextActions = [...document.querySelectorAll('.file-context-menu button')].map(button => button.textContent);
-      const propsButton = [...document.querySelectorAll('.file-context-menu button')].find(button => button.textContent === 'Свойства');
-      propsButton?.click();
-      await new Promise(resolve => setTimeout(resolve, 200));
-      out.filePropertiesDialog = !!document.querySelector('.properties-table');
-      document.querySelector('.properties-table')?.closest('.dlg-backdrop')?.querySelector('.dlg-btn')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      out.filePropertiesAction = out.fileContextActions.includes('Свойства');
       document.querySelector('.file-context-menu')?.remove();
     }
     const archivePathInput = document.querySelector('#panel0 .path-input');

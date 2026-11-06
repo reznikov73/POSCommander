@@ -130,27 +130,19 @@ export function describeFsError(e: any, where?: string): string {
 
 export interface StatFsResult { total: number; free: number; error?: string }
 
-export interface FileProperties {
-  path: string;
-  name: string;
-  isDir: boolean;
-  size: number;
-  created: number;
-  modified: number;
-  accessed: number;
-  readOnly: boolean;
-  hidden: boolean;
-  symbolicLink: boolean;
-}
-
-export async function getFileProperties(filePath: string): Promise<FileProperties> {
-  const stat = await fsp.lstat(filePath);
-  const name = path.basename(filePath.replace(/[\\/]+$/, '')) || filePath;
-  return {
-    path: path.resolve(filePath), name, isDir: stat.isDirectory(), size: stat.isDirectory() ? 0 : Number(stat.size),
-    created: stat.birthtimeMs, modified: stat.mtimeMs, accessed: stat.atimeMs,
-    readOnly: (stat.mode & 0o222) === 0, hidden: name.startsWith('.'), symbolicLink: stat.isSymbolicLink(),
-  };
+export async function showNativeProperties(filePath: string): Promise<void> {
+  const pathBase64 = Buffer.from(path.resolve(filePath), 'utf8').toString('base64');
+  const command = "$ErrorActionPreference='Stop';" +
+    `$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${pathBase64}'));` +
+    "$shell=New-Object -ComObject Shell.Application;" +
+    "$parent=[IO.Path]::GetDirectoryName($p); $name=[IO.Path]::GetFileName($p);" +
+    "$folder=$shell.Namespace($parent); if($null -eq $folder){throw 'Не удалось открыть каталог объекта'};" +
+    "$item=$folder.ParseName($name); if($null -eq $item){throw 'Объект не найден в Проводнике'};" +
+    "$item.InvokeVerb('properties')";
+  const encoded = Buffer.from(command, 'utf16le').toString('base64');
+  await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], {
+    timeout: 15000, windowsHide: true, maxBuffer: 1 << 20,
+  });
 }
 
 export async function statFs(p: string): Promise<StatFsResult> {
