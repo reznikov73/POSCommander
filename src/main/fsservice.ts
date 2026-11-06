@@ -141,7 +141,7 @@ export async function showNativeProperties(filePath: string): Promise<void> {
     "$item.InvokeVerb('properties')";
   const encoded = Buffer.from(command, 'utf16le').toString('base64');
   await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-EncodedCommand', encoded], {
-    timeout: 15000, windowsHide: true, maxBuffer: 1 << 20,
+    windowsHide: true, maxBuffer: 1 << 20,
   });
 }
 
