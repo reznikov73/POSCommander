@@ -46,7 +46,7 @@ export function normalizePath(p: string): string {
 /** Корень диска (C:\) или корень UNC-шары (\\server\share) */
 export function isRoot(p: string): boolean {
   const n = normalizePath(p);
-  if (n.startsWith('archive://')) return n.endsWith('!/');
+  if (n.startsWith('archive://')) return false;
   return /^[a-zA-Z]:\\$/.test(n) || /^\\\\[^\\]+\\[^\\]+$/.test(n);
 }
 

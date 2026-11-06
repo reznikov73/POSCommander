@@ -303,7 +303,9 @@ export class Panel {
   }
 
   goUp(): void {
-    if (!isRoot(this.path)) void this.setPath(parentOf(this.path));
+    const archive = archivePathParts(this.path);
+    if (archive && !archive.inner) void this.setPath(parentOf(archive.archive));
+    else if (!isRoot(this.path)) void this.setPath(parentOf(this.path));
   }
 
   goHistory(delta: -1 | 1): void {

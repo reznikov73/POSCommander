@@ -544,7 +544,7 @@ function swapPanels(): void {
 }
 
 function summaryText(paths: string[]): string {
-  return paths.length === 1 ? `«${paths[0].split('\\').pop()}»` : `${paths.length} объект(ов)`;
+  return paths.length === 1 ? `«${basename(paths[0])}»` : `${paths.length} объект(ов)`;
 }
 
 function escapeHtml(s: string): string {

@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
+import { constants as fsConstants } from 'fs';
 import { spawn } from 'child_process';
 import { path7za } from '7zip-bin';
 
@@ -96,8 +97,31 @@ export async function extractArchiveEntries(virtualPaths: string[], destination:
     if (!inner) throw new Error('Нельзя извлечь корень архива как файл');
     return inner;
   });
-  await fsp.mkdir(destination, { recursive: true });
-  await runSevenZip(['x', archive, `-o${path.resolve(destination)}`, '-aos', '-y', '-sccUTF-8', '--', ...entries], path.dirname(archive));
+  const targetDir = path.resolve(destination);
+  await fsp.mkdir(targetDir, { recursive: true });
+  const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'poscommander-extract-'));
+  try {
+    await runSevenZip(['x', archive, `-o${tempRoot}`, '-y', '-sccUTF-8', '--', ...entries], path.dirname(archive));
+    const copies = entries.map(inner => ({
+      inner,
+      source: path.join(tempRoot, ...inner.split('/')),
+      target: path.join(targetDir, path.posix.basename(inner)),
+    }));
+    for (const item of copies) {
+      try {
+        await fsp.lstat(item.target);
+        throw new Error(`Целевой объект уже существует: ${item.target}`);
+      } catch (error: any) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+      await fsp.access(item.source);
+    }
+    for (const item of copies) {
+      const stat = await fsp.lstat(item.source);
+      if (stat.isDirectory()) await fsp.cp(item.source, item.target, { recursive: true, force: false, errorOnExist: true });
+      else await fsp.copyFile(item.source, item.target, fsConstants.COPYFILE_EXCL);
+    }
+  } finally { await fsp.rm(tempRoot, { recursive: true, force: true }); }
 }
 
 export async function extractArchiveFileForView(virtualPath: string): Promise<string> {
