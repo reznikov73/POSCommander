@@ -33,6 +33,8 @@ export class Panel {
 
   private listEl: HTMLElement;
   private pathInput: HTMLInputElement;
+  private maskSelect: HTMLSelectElement;
+  private fileMask = '*.*';
   private pathHistoryEl: HTMLDataListElement;
   private pathHistory: string[] = [];
   private directorySizes = new Map<string, number>();
@@ -62,11 +64,15 @@ export class Panel {
     container.classList.add('panel');
     container.innerHTML = `
       <div class="drive-strip"></div>
+      <div class="drive-info-row"><button class="drive-btn" title="Сменить диск (Alt+F${idx + 1})">?</button></div>
       <div class="tab-strip"></div>
       <div class="panel-head">
-        <button class="drive-btn" title="Сменить диск (Alt+F${idx + 1})">?</button>
         <input class="path-input" list="path-history-${idx}" spellcheck="false" autocomplete="on" />
         <datalist id="path-history-${idx}"></datalist>
+        <select class="mask-select" title="Маска файлов">
+          <option value="*.*">*</option><option value="*.txt">*.txt</option>
+          <option value="*.exe">*.exe</option><option value="*.zip">*.zip</option><option value="*.pdf">*.pdf</option>
+        </select>
         <button class="reread-btn" title="Перечитать (Ctrl+R)">⟳</button>
       </div>
       <div class="columns">
@@ -81,11 +87,19 @@ export class Panel {
     this.driveStrip = container.querySelector('.drive-strip')!;
     this.tabStrip = container.querySelector('.tab-strip')!;
     this.pathInput = container.querySelector('.path-input')!;
+    this.maskSelect = container.querySelector('.mask-select')!;
     this.pathHistoryEl = container.querySelector(`#path-history-${idx}`)!;
     this.listEl = container.querySelector('.list')!;
     this.headerRow = container.querySelector('.columns')!;
 
     this.driveBtn.addEventListener('click', () => { this.hooks.activate(this); this.hooks.driveMenu(this, this.driveBtn); });
+    this.maskSelect.addEventListener('change', () => {
+      this.fileMask = this.maskSelect.value || '*.*';
+      this.pathInput.value = this.pathInputText();
+      this.sel.clear();
+      this.sortEntries(); this.render(); this.hooks.statusChanged();
+    });
+    this.loadTabs();
     this.renderTabs();
     container.querySelector('.reread-btn')!.addEventListener('click', () => { this.hooks.activate(this); void this.refresh(); });
     this.headerRow.addEventListener('click', (ev) => {
@@ -104,11 +118,20 @@ export class Panel {
     this.pathInput.addEventListener('keydown', (ev) => {
       ev.stopPropagation();
       if (ev.key === 'Enter') {
-        void this.setPath(this.pathInput.value).then(ok => {
-          if (!ok) this.pathInput.value = displayPath(this.path);
+        const raw = this.pathInput.value.trim();
+        const normalized = raw.replace(/\//g, '\\');
+        const lastSlash = normalized.lastIndexOf('\\');
+        const leaf = normalized.slice(lastSlash + 1);
+        const hasMask = /[*?]/.test(leaf);
+        const target = hasMask ? (lastSlash < 0 ? this.path : normalized.slice(0, lastSlash) || normalized) : raw;
+        this.fileMask = hasMask ? leaf : '*.*';
+        this.maskSelect.value = this.fileMask;
+        void this.setPath(target).then(ok => {
+          if (!ok) this.pathInput.value = this.pathInputText();
+          else { this.sortEntries(); this.render(); this.hooks.statusChanged(); }
         });
       } else if (ev.key === 'Escape') {
-        this.pathInput.value = displayPath(this.path);
+        this.pathInput.value = this.pathInputText();
         this.pathInput.blur();
       }
     });
@@ -156,7 +179,7 @@ export class Panel {
 
   private sortEntries(): void {
     const dirs = this.entries.filter(e => e.isDir);
-    const files = this.entries.filter(e => !e.isDir);
+    const files = this.entries.filter(e => !e.isDir && this.matchesMask(e.name));
     const cmpName = (a: Entry, b: Entry) => naturalCmp(a.name, b.name);
     const byExt = (a: Entry, b: Entry) => naturalCmp(extOf(a.name), extOf(b.name)) || cmpName(a, b);
     const cmp: Record<SortBy, (a: Entry, b: Entry) => number> = {
@@ -170,6 +193,20 @@ export class Panel {
     dirs.sort((a, b) => dir * f(a, b));
     files.sort((a, b) => dir * f(a, b));
     this.sorted = dirs.concat(files);
+  }
+
+  private matchesMask(name: string): boolean {
+    const masks = this.fileMask.split(';').map(mask => mask.trim()).filter(Boolean);
+    if (!masks.length || masks.some(mask => mask === '*.*' || mask === '*')) return true;
+    return masks.some(mask => {
+      const source = mask.split('').map(char => char === '*' ? '.*' : char === '?' ? '.' : char.replace(/[.+^${}()|[\]\\]/g, '\\$&')).join('');
+      return new RegExp(`^${source}$`, 'i').test(name);
+    });
+  }
+
+  private pathInputText(): string {
+    const path = displayPath(this.path);
+    return `${path.endsWith('\\') ? path : path + '\\'}${this.fileMask}`;
   }
 
   private loadPathHistory(): void {
@@ -206,7 +243,7 @@ export class Panel {
       this.entries = res.entries;
       if (res.path) this.path = normalizePath(res.path);
     }
-    this.pathInput.value = displayPath(this.path);
+    this.pathInput.value = this.pathInputText();
     this.rememberPath(this.path);
     // убираем из выделения исчезнувшие имена
     const names = new Set(this.entries.map(e => e.name));
@@ -239,6 +276,7 @@ export class Panel {
     const previous = this.path;
     this.path = normalizePath(res.path || np);
     this.tabs[this.activeTab] = this.path;
+    this.saveTabs();
     this.rememberPath(this.path);
     if (trackHistory && previous !== np) {
       this.history = this.history.slice(0, this.historyIndex + 1);
@@ -254,7 +292,7 @@ export class Panel {
     this.entries = res.entries;
     this.directorySizes.clear();
     this.pendingDirectorySizes.clear();
-    this.pathInput.value = displayPath(this.path);
+    this.pathInput.value = this.pathInputText();
     this.sortEntries();
     this.cursor = 0;
     this.render();
@@ -321,13 +359,49 @@ export class Panel {
   newTab(): void {
     this.tabs.splice(this.activeTab + 1, 0, this.path);
     this.activeTab++;
+    this.saveTabs();
     this.renderTabs();
   }
+
+  private loadTabs(): void {
+    try {
+      const saved = JSON.parse(localStorage.getItem(`poscommander.tabs.${this.idx}`) || 'null');
+      if (!saved || !Array.isArray(saved.tabs)) return;
+      const tabs = saved.tabs.filter((value: unknown): value is string => typeof value === 'string' && value.length > 0);
+      if (tabs.length) this.tabs = tabs.map(normalizePath);
+      this.activeTab = Math.max(0, Math.min(this.tabs.length - 1, Number(saved.activeTab) || 0));
+    } catch { this.tabs = ['C:\\']; this.activeTab = 0; }
+  }
+
+  private saveTabs(): void {
+    try { localStorage.setItem(`poscommander.tabs.${this.idx}`, JSON.stringify({ tabs: this.tabs, activeTab: this.activeTab })); }
+    catch { /* storage can be disabled */ }
+  }
+
+  private closeTab(index: number): void {
+    if (this.tabs.length === 1) {
+      this.tabs[0] = this.path;
+      this.activeTab = 0;
+      this.saveTabs();
+      this.renderTabs();
+      return;
+    }
+    const wasActive = index === this.activeTab;
+    this.tabs.splice(index, 1);
+    if (index < this.activeTab) this.activeTab--;
+    else if (wasActive) this.activeTab = Math.max(0, index - 1);
+    this.saveTabs();
+    this.renderTabs();
+    if (wasActive) void this.setPath(this.tabs[this.activeTab], false);
+  }
+
+  closeActiveTab(): void { this.closeTab(this.activeTab); }
 
   private async loadFree(): Promise<void> {
     const r = await window.pos.statfs(this.path);
     this.free = r.free;
     this.total = r.total;
+    this.updateDriveButton();
     this.hooks.statusChanged();
   }
 
@@ -335,13 +409,17 @@ export class Panel {
     const archive = archivePathParts(this.path);
     const letter = (archive?.archive.slice(0, 2) ?? this.path.slice(0, 2)).toUpperCase();
     const drv = this.drives.find(d => d.letter === letter);
-    this.driveBtn.textContent = drv ? (drv.label ? `${letter} ${drv.label}` : letter) : (letter + '?');
+    const label = drv?.label ? `[${drv.label}]` : `[${letter}]`;
+    this.driveBtn.textContent = this.total > 0
+      ? `${label} ${fmtBytes(this.free)} из ${fmtBytes(this.total)} свободно`
+      : `${label} · сведения о диске загружаются`;
+    this.driveBtn.title = `${label} · свободно ${fmtBytes(this.free)} из ${fmtBytes(this.total)}. Нажмите, чтобы сменить диск.`;
     this.renderTabs();
     this.driveStrip.textContent = '';
     for (const d of this.drives) {
       const b = document.createElement('button');
       b.className = 'drive-letter' + (d.letter === letter ? ' selected' : '');
-      b.textContent = d.letter.slice(0, 1).toLowerCase();
+      b.innerHTML = `<span class="drive-icon" aria-hidden="true"></span><span>${d.letter.slice(0, 1).toLowerCase()}</span>`;
       b.title = `${d.letter} ${d.label || d.type} · свободно ${fmtBytes(d.free)} из ${fmtBytes(d.total)}`;
       b.addEventListener('click', () => { this.hooks.activate(this); void this.setPath(d.root); });
       this.driveStrip.appendChild(b);
@@ -353,15 +431,43 @@ export class Panel {
     this.tabs.forEach((tabPath, i) => {
       const b = document.createElement('button');
       b.className = 'path-tab' + (i === this.activeTab ? ' active' : '');
-      b.textContent = basename(tabPath) || tabPath;
-      b.title = tabPath;
-      b.addEventListener('click', () => { this.hooks.activate(this); this.activeTab = i; void this.setPath(tabPath); });
+      b.title = displayPath(tabPath);
+      const icon = document.createElement('span');
+      icon.className = 'tab-folder-icon';
+      icon.innerHTML = FOLDER_ICON;
+      const label = document.createElement('span');
+      label.className = 'tab-label';
+      label.textContent = this.tabLabel(tabPath);
+      const close = document.createElement('span');
+      close.className = 'tab-close';
+      close.textContent = '×';
+      close.title = 'Закрыть вкладку';
+      close.addEventListener('click', ev => { ev.stopPropagation(); this.hooks.activate(this); this.closeTab(i); });
+      b.append(icon, label, close);
+      b.addEventListener('click', () => {
+        this.hooks.activate(this);
+        if (this.activeTab === i && this.path === tabPath) return;
+        const previous = this.activeTab;
+        this.activeTab = i;
+        this.saveTabs();
+        void this.setPath(tabPath, false).then(ok => {
+          if (!ok) { this.activeTab = previous; this.saveTabs(); this.renderTabs(); }
+        });
+      });
+      b.addEventListener('auxclick', ev => { if (ev.button === 1) this.closeTab(i); });
       this.tabStrip.appendChild(b);
     });
     const add = document.createElement('button');
     add.className = 'tab-new'; add.textContent = '+'; add.title = 'Новая вкладка';
     add.addEventListener('click', () => this.newTab());
     this.tabStrip.appendChild(add);
+  }
+
+  private tabLabel(tabPath: string): string {
+    const shown = displayPath(tabPath);
+    const drive = /^([a-z]):\\(.*)$/i.exec(shown);
+    if (drive) return `${drive[1].toLowerCase()}:${drive[2].replace(/\\/g, '\\')}`;
+    return basename(tabPath) || shown;
   }
 
   render(): void {

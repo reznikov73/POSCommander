@@ -618,6 +618,9 @@ function onKeyDown(ev: KeyboardEvent): void {
   const p = panel();
   const key = ev.key;
 
+  if (ev.ctrlKey && (key === 't' || key === 'T')) { ev.preventDefault(); p.newTab(); return; }
+  if (ev.ctrlKey && (key === 'w' || key === 'W')) { ev.preventDefault(); p.closeActiveTab(); return; }
+
   const handle = (): boolean => {
     switch (key) {
       case 'Enter': {

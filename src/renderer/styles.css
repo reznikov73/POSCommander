@@ -63,12 +63,23 @@ html, body {
 .panel.active { border-color: var(--accent); }
 
 .drive-strip { height: 25px; flex: 0 0 25px; display: flex; align-items: center; gap: 3px; padding: 2px 4px; background: #f4f4f4; border-bottom: 1px solid #ccc; }
-.drive-letter { width: 24px; height: 19px; border: 1px solid transparent; background: transparent; color: #222; font: inherit; cursor: pointer; }
+.drive-letter { display: inline-flex; align-items: center; justify-content: center; gap: 3px; min-width: 34px; height: 19px; padding: 0 3px; border: 1px solid transparent; background: transparent; color: #222; font: inherit; cursor: pointer; }
 .drive-letter:hover, .drive-letter.selected { border-color: #9bbde0; background: #d9eafb; }
-.tab-strip { height: 25px; flex: 0 0 25px; display: flex; align-items: end; gap: 2px; padding: 2px 4px 0; background: #eee; border-bottom: 1px solid #aeb8c1; overflow: hidden; }
-.path-tab, .tab-new { height: 22px; max-width: 180px; padding: 1px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 1px solid #c3c3c3; border-bottom: 0; background: #e8e8e8; font: inherit; font-size: 12px; cursor: pointer; }
+.drive-icon { position: relative; width: 13px; height: 9px; border: 1px solid #696969; border-radius: 1px; background: linear-gradient(#f8f8f8 0 60%, #bfc6cb 60%); }
+.drive-icon::after { content: ''; position: absolute; right: 1px; bottom: 1px; width: 2px; height: 2px; background: #3e8c49; border-radius: 50%; }
+.drive-info-row { height: 21px; flex: 0 0 21px; background: #fafafa; border-bottom: 1px solid #d0d0d0; }
+.drive-btn { width: 100%; height: 20px; padding: 1px 8px; border: 0; background: transparent; color: #111; font: inherit; font-size: 12px; text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drive-btn:hover { background: #e8eefc; }
+.tab-strip { height: 24px; flex: 0 0 24px; display: flex; align-items: end; gap: 1px; padding: 2px 4px 0; background: #eee; border-bottom: 1px solid #aeb8c1; overflow: hidden; }
+.path-tab, .tab-new { display: inline-flex; align-items: center; gap: 4px; height: 22px; max-width: min(240px, 40%); min-width: 36px; padding: 1px 6px; overflow: hidden; white-space: nowrap; border: 1px solid #c3c3c3; border-bottom: 0; background: #e8e8e8; font: inherit; font-size: 12px; cursor: pointer; }
 .path-tab.active { background: #fff; border-color: #9caab7; }
-.tab-new { padding: 0 7px; color: #444; }
+.tab-folder-icon { flex: 0 0 15px; width: 15px; height: 15px; display: inline-flex; align-items: center; }
+.tab-folder-icon svg { width: 15px; height: 15px; }
+.tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tab-close { display: none; flex: 0 0 14px; width: 14px; height: 14px; border-radius: 2px; line-height: 13px; font-size: 14px; text-align: center; color: #555; }
+.path-tab:hover .tab-close { display: inline-block; }
+.tab-close:hover { background: #d5d5d5; color: #111; }
+.tab-new { max-width: 28px; min-width: 25px; justify-content: center; padding: 0 5px; color: #444; }
 
 .panel-head {
   display: flex;
@@ -77,19 +88,6 @@ html, body {
   background: var(--head-bg);
   border-bottom: 1px solid var(--border);
 }
-
-.drive-btn {
-  min-width: 90px;
-  padding: 2px 8px;
-  font: inherit;
-  border: 1px solid var(--border);
-  background: #f7f7f7;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.drive-btn:hover { background: #e8eefc; }
 
 .path-input {
   flex: 1;
@@ -100,6 +98,8 @@ html, body {
   outline: none;
 }
 .path-input:focus { border-color: var(--accent); }
+.mask-select { width: 58px; height: 22px; padding: 1px 2px; border: 1px solid var(--border); background: #f8f8f8; color: var(--text); font: inherit; font-size: 11px; }
+.mask-select:focus { outline: 1px solid var(--accent); }
 
 .reread-btn {
   width: 26px;
