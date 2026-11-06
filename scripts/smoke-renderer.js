@@ -7,11 +7,26 @@
   const evs = [];
   const conflicts = [];
   const progress = [];
+  const archiveProgress = [];
+  let conflictArrowNavigation = false;
   const unsub = p.onOpEvent(e => {
     evs.push(e);
-    if (e.conflictId) { conflicts.push(e); p.conflictReply(e.conflictId, 'skip'); }
+    if (e.conflictId) {
+      conflicts.push(e);
+      const modal = [...document.querySelectorAll('.dlg-backdrop')].at(-1);
+      const buttons = modal ? [...modal.querySelectorAll('.dlg-btn')] : [];
+      if (buttons.length > 1) {
+        buttons[0].focus();
+        buttons[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+        conflictArrowNavigation = document.activeElement === buttons[1];
+        buttons[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+        conflictArrowNavigation = conflictArrowNavigation && document.activeElement === buttons[0];
+      }
+      p.conflictReply(e.conflictId, 'skip');
+    }
     if (e.phase === 'progress') progress.push(e);
   });
+  const unsubArchive = p.onArchiveProgress(e => archiveProgress.push(e));
   const waitDone = () => new Promise(r => {
     const t = setInterval(() => {
       const d = evs.find(e => e.phase === 'done' && !e._used);
@@ -48,7 +63,8 @@
 
     // 6) открытие архива и копирование элемента с сохранением его имени
     const archivePath = tmp + '\\smoke.zip';
-    out.archiveCreateErr = await p.createArchive([tmp + '\\renamed.css'], archivePath, 'zip', tmp);
+    out.archiveCreateErr = await p.createArchive([tmp + '\\renamed.css'], archivePath, 'zip', tmp, 'smoke-create-progress');
+    out.archiveCreateProgressComplete = archiveProgress.some(e => e.progressId === 'smoke-create-progress' && e.percent === 100);
     const archiveRoot = 'archive://' + encodeURIComponent(archivePath) + '!/';
     const archiveList = await p.list(archiveRoot);
     out.archiveListed = !archiveList.error && archiveList.entries.some(e => e.name === 'renamed.css');
@@ -143,6 +159,14 @@
         extractActions.includes('Извлечь в smoke\\');
       document.querySelector('.file-context-menu')?.remove();
     } else out.archiveContextExtract = false;
+    out.conflictArrowNavigation = conflictArrowNavigation;
+    const progressDest = tmp + '\\extract-progress';
+    await p.mkdir(progressDest);
+    out.archiveExtractProgressErr = await p.extractArchives([archivePath], progressDest, 'smoke-extract-progress');
+    const extractEvents = archiveProgress.filter(e => e.progressId === 'smoke-extract-progress');
+    out.archiveProgressEvents = extractEvents.length;
+    out.archiveProgressValues = extractEvents.map(e => e.percent);
+    out.archiveProgressCompleted = extractEvents.some(e => e.percent === 100);
     const activePanel = document.querySelector('.panel.active');
     const pathInput = activePanel?.querySelector('.path-input');
     if (pathInput) {
@@ -171,6 +195,7 @@
     out.fatal = String(e && e.message || e);
   } finally {
     unsub();
+    unsubArchive();
   }
   return out;
 })()

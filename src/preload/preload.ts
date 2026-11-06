@@ -5,14 +5,14 @@ export interface PosApi {
   list(path: string): Promise<{ path: string; entries: PosEntry[]; error?: string }>;
   directorySize(path: string): Promise<number>;
   fileIcons(paths: string[]): Promise<string[]>;
-  createArchive(srcs: string[], archivePath: string, format: 'zip' | '7z' | 'tar', cwd: string): Promise<string>;
-  extractArchives(archives: string[], destination: string): Promise<string>;
-  extractArchiveEntries(entries: string[], destination: string): Promise<string>;
-  deleteArchiveEntries(entries: string[]): Promise<string>;
-  addArchiveEntries(srcs: string[], destination: string): Promise<string>;
-  renameArchiveEntry(entry: string, newName: string): Promise<string>;
-  createArchiveFolder(path: string): Promise<string>;
-  extractArchiveFileForView(path: string): Promise<{ path?: string; error?: string }>;
+  createArchive(srcs: string[], archivePath: string, format: 'zip' | '7z' | 'tar', cwd: string, progressId?: string): Promise<string>;
+  extractArchives(archives: string[], destination: string, progressId?: string): Promise<string>;
+  extractArchiveEntries(entries: string[], destination: string, progressId?: string): Promise<string>;
+  deleteArchiveEntries(entries: string[], progressId?: string): Promise<string>;
+  addArchiveEntries(srcs: string[], destination: string, progressId?: string): Promise<string>;
+  renameArchiveEntry(entry: string, newName: string, progressId?: string): Promise<string>;
+  createArchiveFolder(path: string, progressId?: string): Promise<string>;
+  extractArchiveFileForView(path: string, progressId?: string): Promise<{ path?: string; error?: string }>;
   statfs(path: string): Promise<{ total: number; free: number; error?: string }>;
   search(root: string, query: string): Promise<{ entries: Array<{ path: string; name: string; isDir: boolean; size: number; mtime: number }>; truncated: boolean }>;
   drives(): Promise<PosDrive[]>;
@@ -27,6 +27,7 @@ export interface PosApi {
   version(): Promise<string>;
   home(): Promise<string>;
   onOpEvent(cb: (data: any) => void): () => void;
+  onArchiveProgress(cb: (data: { progressId: string; percent: number; currentFile: string }) => void): () => void;
 }
 
 export interface PosEntry { name: string; isDir: boolean; size: number; mtime: number; icon?: string }
@@ -36,14 +37,14 @@ const api: PosApi = {
   list: (p) => ipcRenderer.invoke('fs:list', p),
   directorySize: (p) => ipcRenderer.invoke('fs:directorySize', p),
   fileIcons: (paths) => ipcRenderer.invoke('fs:fileIcons', paths),
-  createArchive: (srcs, archivePath, format, cwd) => ipcRenderer.invoke('archive:create', { srcs, archivePath, format, cwd }),
-  extractArchives: (archives, destination) => ipcRenderer.invoke('archive:extract', { archives, destination }),
-  extractArchiveEntries: (entries, destination) => ipcRenderer.invoke('archive:extractEntries', { entries, destination }),
-  deleteArchiveEntries: (entries) => ipcRenderer.invoke('archive:deleteEntries', entries),
-  addArchiveEntries: (srcs, destination) => ipcRenderer.invoke('archive:addEntries', { srcs, destination }),
-  renameArchiveEntry: (entry, newName) => ipcRenderer.invoke('archive:renameEntry', { entry, newName }),
-  createArchiveFolder: (p) => ipcRenderer.invoke('archive:createFolder', p),
-  extractArchiveFileForView: (p) => ipcRenderer.invoke('archive:extractForView', p),
+  createArchive: (srcs, archivePath, format, cwd, progressId) => ipcRenderer.invoke('archive:create', { srcs, archivePath, format, cwd, progressId }),
+  extractArchives: (archives, destination, progressId) => ipcRenderer.invoke('archive:extract', { archives, destination, progressId }),
+  extractArchiveEntries: (entries, destination, progressId) => ipcRenderer.invoke('archive:extractEntries', { entries, destination, progressId }),
+  deleteArchiveEntries: (entries, progressId) => ipcRenderer.invoke('archive:deleteEntries', { entries, progressId }),
+  addArchiveEntries: (srcs, destination, progressId) => ipcRenderer.invoke('archive:addEntries', { srcs, destination, progressId }),
+  renameArchiveEntry: (entry, newName, progressId) => ipcRenderer.invoke('archive:renameEntry', { entry, newName, progressId }),
+  createArchiveFolder: (p, progressId) => ipcRenderer.invoke('archive:createFolder', { path: p, progressId }),
+  extractArchiveFileForView: (p, progressId) => ipcRenderer.invoke('archive:extractForView', { path: p, progressId }),
   statfs: (p) => ipcRenderer.invoke('fs:statfs', p),
   search: (root, query) => ipcRenderer.invoke('fs:search', { root, query }),
   drives: () => ipcRenderer.invoke('fs:drives'),
@@ -67,6 +68,11 @@ const api: PosApi = {
       ipcRenderer.removeListener('op:done', handler);
       ipcRenderer.removeListener('op:conflict', handler);
     };
+  },
+  onArchiveProgress: (cb) => {
+    const handler = (_e: IpcRendererEvent, data: { progressId: string; percent: number; currentFile: string }) => cb(data);
+    ipcRenderer.on('archive:progress', handler);
+    return () => ipcRenderer.removeListener('archive:progress', handler);
   },
 };
 

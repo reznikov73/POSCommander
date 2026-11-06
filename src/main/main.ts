@@ -90,6 +90,12 @@ function createWindow(): void {
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => app.quit());
 
+function archiveProgress(event: Electron.IpcMainInvokeEvent, progressId?: string) {
+  return (percent: number, currentFile: string) => {
+    if (progressId) event.sender.send('archive:progress', { progressId, percent, currentFile });
+  };
+}
+
 // Заголовок окна с системными показателями в стиле TC.
 let cpuSnapshot = os.cpus();
 let networkSnapshot: { rx: number; tx: number; at: number } | null = null;
@@ -195,22 +201,22 @@ ipcMain.handle('fs:statfs', (_e, p: string) => {
 });
 ipcMain.handle('fs:search', (_e, args: { root: string; query: string }) => fsservice.searchFiles(args.root, args.query));
 ipcMain.handle('fs:drives', () => fsservice.getDrives());
-ipcMain.handle('archive:create', (_e, args: { srcs: string[]; archivePath: string; format: ArchiveFormat; cwd: string }) =>
-  createArchive(args.srcs, args.archivePath, args.format, args.cwd).then(() => '').catch((e: any) => e?.message ?? String(e)));
-ipcMain.handle('archive:extract', (_e, args: { archives: string[]; destination: string }) =>
-  extractArchives(args.archives, args.destination).then(() => '').catch((e: any) => e?.message ?? String(e)));
-ipcMain.handle('archive:extractEntries', (_e, args: { entries: string[]; destination: string }) =>
-  extractArchiveEntries(args.entries, args.destination).then(() => '').catch((e: any) => e?.message ?? String(e)));
-ipcMain.handle('archive:deleteEntries', (_e, entries: string[]) =>
-  deleteArchiveEntries(entries).then(() => '').catch((e: any) => e?.message ?? String(e)));
-ipcMain.handle('archive:addEntries', (_e, args: { srcs: string[]; destination: string }) =>
-  addFilesToArchive(args.srcs, args.destination).then(() => '').catch((e: any) => e?.message ?? String(e)));
-ipcMain.handle('archive:renameEntry', (_e, args: { entry: string; newName: string }) =>
-  renameArchiveEntry(args.entry, args.newName).then(() => '').catch((e: any) => e?.message ?? String(e)));
-ipcMain.handle('archive:createFolder', (_e, p: string) =>
-  createArchiveFolder(p).then(() => '').catch((e: any) => e?.message ?? String(e)));
-ipcMain.handle('archive:extractForView', (_e, p: string) =>
-  extractArchiveFileForView(p).then(result => ({ path: result })).catch((e: any) => ({ error: e?.message ?? String(e) })));
+ipcMain.handle('archive:create', (_e, args: { srcs: string[]; archivePath: string; format: ArchiveFormat; cwd: string; progressId?: string }) =>
+  createArchive(args.srcs, args.archivePath, args.format, args.cwd, archiveProgress(_e, args.progressId)).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:extract', (_e, args: { archives: string[]; destination: string; progressId?: string }) =>
+  extractArchives(args.archives, args.destination, archiveProgress(_e, args.progressId)).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:extractEntries', (_e, args: { entries: string[]; destination: string; progressId?: string }) =>
+  extractArchiveEntries(args.entries, args.destination, archiveProgress(_e, args.progressId)).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:deleteEntries', (_e, args: { entries: string[]; progressId?: string }) =>
+  deleteArchiveEntries(args.entries, archiveProgress(_e, args.progressId)).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:addEntries', (_e, args: { srcs: string[]; destination: string; progressId?: string }) =>
+  addFilesToArchive(args.srcs, args.destination, archiveProgress(_e, args.progressId)).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:renameEntry', (_e, args: { entry: string; newName: string; progressId?: string }) =>
+  renameArchiveEntry(args.entry, args.newName, archiveProgress(_e, args.progressId)).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:createFolder', (_e, args: { path: string; progressId?: string }) =>
+  createArchiveFolder(args.path, archiveProgress(_e, args.progressId)).then(() => '').catch((e: any) => e?.message ?? String(e)));
+ipcMain.handle('archive:extractForView', (_e, args: { path: string; progressId?: string }) =>
+  extractArchiveFileForView(args.path, archiveProgress(_e, args.progressId)).then(result => ({ path: result })).catch((e: any) => ({ error: e?.message ?? String(e) })));
 ipcMain.handle('fs:mkdir', async (_e, p: string) => {
   try { await fsservice.mkdirRecursive(p); return ''; }
   catch (e: any) { return fsservice.describeFsError(e, p); }

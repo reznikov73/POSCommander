@@ -27,16 +27,38 @@ function sevenZipPath(): string {
   return path7za.replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
 }
 
-function runSevenZip(args: string[], cwd: string): Promise<string> {
+export type ArchiveProgress = (percent: number, currentFile: string) => void;
+
+function runSevenZip(args: string[], cwd: string, onProgress?: ArchiveProgress): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(sevenZipPath(), args, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const progressArgs = [...args];
+    if (onProgress) {
+      const delimiter = progressArgs.indexOf('--');
+      progressArgs.splice(delimiter < 0 ? progressArgs.length : delimiter, 0, '-bsp1');
+    }
+    const child = spawn(sevenZipPath(), progressArgs, { cwd, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let output = '';
-    const collect = (chunk: Buffer) => { output = (output + chunk.toString('utf8')).slice(-64 * 1024 * 1024); };
+    let progressText = '';
+    let currentFile = '';
+    const collect = (chunk: Buffer) => {
+      const text = chunk.toString('utf8');
+      output = (output + text).slice(-64 * 1024 * 1024);
+      if (!onProgress) return;
+      progressText = (progressText + text).slice(-8192);
+      const fileMatch = /(?:Extracting|Adding|Creating|Deleting|Updating)\s+(.+?)(?:\r?\n|\r|$)/g;
+      let file: RegExpExecArray | null;
+      while ((file = fileMatch.exec(progressText))) currentFile = file[1].trim();
+      const pctMatch = /(?:^|[\r\n])\s*(\d{1,3})%/g;
+      let pct: RegExpExecArray | null;
+      while ((pct = pctMatch.exec(progressText))) onProgress(Math.min(99, Number(pct[1])), currentFile);
+      const lastBoundary = Math.max(progressText.lastIndexOf('\r'), progressText.lastIndexOf('\n'));
+      if (lastBoundary >= 0) progressText = progressText.slice(lastBoundary + 1);
+    };
     child.stdout.on('data', collect);
     child.stderr.on('data', collect);
     child.once('error', reject);
     child.once('close', code => {
-      if (code === 0) resolve(output);
+      if (code === 0) { onProgress?.(100, currentFile); resolve(output); }
       else reject(new Error(output.trim() || `7-Zip завершился с кодом ${code ?? 'unknown'}`));
     });
   });
@@ -85,7 +107,7 @@ function safeInner(value: string): string {
   return normalized;
 }
 
-export async function extractArchiveEntries(virtualPaths: string[], destination: string): Promise<void> {
+export async function extractArchiveEntries(virtualPaths: string[], destination: string, onProgress?: ArchiveProgress): Promise<void> {
   if (!virtualPaths.length) throw new Error('Не выбраны файлы в архиве');
   const first = parseArchivePath(virtualPaths[0]);
   if (!first) throw new Error('Некорректный путь внутри архива');
@@ -101,7 +123,7 @@ export async function extractArchiveEntries(virtualPaths: string[], destination:
   await fsp.mkdir(targetDir, { recursive: true });
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'poscommander-extract-'));
   try {
-    await runSevenZip(['x', archive, `-o${tempRoot}`, '-y', '-sccUTF-8', '--', ...entries], path.dirname(archive));
+    await runSevenZip(['x', archive, `-o${tempRoot}`, '-y', '-sccUTF-8', '--', ...entries], path.dirname(archive), onProgress);
     const copies = entries.map(inner => ({
       inner,
       source: path.join(tempRoot, ...inner.split('/')),
@@ -196,20 +218,20 @@ export async function stageArchiveEntries(virtualPaths: string[]): Promise<Stage
   }
 }
 
-export async function extractArchiveFileForView(virtualPath: string): Promise<string> {
+export async function extractArchiveFileForView(virtualPath: string, onProgress?: ArchiveProgress): Promise<string> {
   const parsed = parseArchivePath(virtualPath);
   if (!parsed) throw new Error('Некорректный путь внутри архива');
   const inner = safeInner(parsed.inner);
   if (!inner) throw new Error('Нельзя просмотреть корень архива');
   const tempRoot = await fsp.mkdtemp(path.join(os.tmpdir(), 'poscommander-view-'));
-  await extractArchiveEntries([virtualPath], tempRoot);
+  await extractArchiveEntries([virtualPath], tempRoot, onProgress);
   const extracted = path.join(tempRoot, ...inner.split('/'));
   const stat = await fsp.stat(extracted);
   if (!stat.isFile()) throw new Error('Выбранный объект не является файлом');
   return extracted;
 }
 
-export async function deleteArchiveEntries(virtualPaths: string[]): Promise<void> {
+export async function deleteArchiveEntries(virtualPaths: string[], onProgress?: ArchiveProgress): Promise<void> {
   if (!virtualPaths.length) throw new Error('Не выбраны файлы в архиве');
   const first = parseArchivePath(virtualPaths[0]);
   if (!first) throw new Error('Некорректный путь внутри архива');
@@ -219,10 +241,10 @@ export async function deleteArchiveEntries(virtualPaths: string[]): Promise<void
     if (!parsed || path.resolve(parsed.archive).toLowerCase() !== archive.toLowerCase()) throw new Error('Выбраны файлы из разных архивов');
     return safeInner(parsed.inner);
   });
-  await runSevenZip(['d', archive, '-sccUTF-8', '--', ...entries], path.dirname(archive));
+  await runSevenZip(['d', archive, '-sccUTF-8', '--', ...entries], path.dirname(archive), onProgress);
 }
 
-export async function addFilesToArchive(srcs: string[], virtualDestination: string): Promise<void> {
+export async function addFilesToArchive(srcs: string[], virtualDestination: string, onProgress?: ArchiveProgress): Promise<void> {
   const parsed = parseArchivePath(virtualDestination);
   if (!parsed || !srcs.length) throw new Error('Не выбраны файлы для добавления в архив');
   const base = path.dirname(path.resolve(srcs[0]));
@@ -235,20 +257,20 @@ export async function addFilesToArchive(srcs: string[], virtualDestination: stri
   const args = ['a', archive, '-mx=5', '-sccUTF-8'];
   if (prefix) args.push(`-ap${prefix}/`);
   args.push('--', ...relative);
-  await runSevenZip(args, base);
+  await runSevenZip(args, base, onProgress);
 }
 
-export async function renameArchiveEntry(virtualPath: string, newName: string): Promise<void> {
+export async function renameArchiveEntry(virtualPath: string, newName: string, onProgress?: ArchiveProgress): Promise<void> {
   const parsed = parseArchivePath(virtualPath);
   const oldName = parsed ? safeInner(parsed.inner) : '';
   const cleanName = newName.trim().replace(/[\\/]/g, '');
   if (!parsed || !oldName || !cleanName || cleanName === '.' || cleanName === '..') throw new Error('Некорректное имя файла');
   const parent = path.posix.dirname(oldName);
   const target = parent === '.' ? cleanName : `${parent}/${cleanName}`;
-  await runSevenZip(['rn', path.resolve(parsed.archive), oldName, target, '-sccUTF-8'], path.dirname(path.resolve(parsed.archive)));
+  await runSevenZip(['rn', path.resolve(parsed.archive), oldName, target, '-sccUTF-8'], path.dirname(path.resolve(parsed.archive)), onProgress);
 }
 
-export async function createArchiveFolder(virtualPath: string): Promise<void> {
+export async function createArchiveFolder(virtualPath: string, onProgress?: ArchiveProgress): Promise<void> {
   const parsed = parseArchivePath(virtualPath);
   const inner = parsed ? safeInner(parsed.inner) : '';
   if (!parsed || !inner) throw new Error('Нужно указать имя новой папки внутри архива');
@@ -260,11 +282,11 @@ export async function createArchiveFolder(virtualPath: string): Promise<void> {
     const args = ['a', path.resolve(parsed.archive), '-sccUTF-8'];
     if (parent !== '.') args.push(`-ap${parent}/`);
     args.push('--', leaf);
-    await runSevenZip(args, tempRoot);
+    await runSevenZip(args, tempRoot, onProgress);
   } finally { await fsp.rm(tempRoot, { recursive: true, force: true }); }
 }
 
-export async function createArchive(srcs: string[], archivePath: string, format: ArchiveFormat, cwd: string): Promise<void> {
+export async function createArchive(srcs: string[], archivePath: string, format: ArchiveFormat, cwd: string, onProgress?: ArchiveProgress): Promise<void> {
   if (!srcs.length) throw new Error('Не выбраны файлы для упаковки');
   const base = path.resolve(cwd);
   const relative = srcs.map(src => path.relative(base, path.resolve(src)));
@@ -277,16 +299,20 @@ export async function createArchive(srcs: string[], archivePath: string, format:
     throw new Error('Архив не может перезаписать исходный файл');
   }
   await fsp.mkdir(path.dirname(target), { recursive: true });
-  await runSevenZip(['a', `-t${format}`, '-mx=5', target, '--', ...relative], base);
+  await runSevenZip(['a', `-t${format}`, '-mx=5', target, '--', ...relative], base, onProgress);
 }
 
-export async function extractArchives(archives: string[], destination: string): Promise<void> {
+export async function extractArchives(archives: string[], destination: string, onProgress?: ArchiveProgress): Promise<void> {
   if (!archives.length) throw new Error('Не выбраны архивы для распаковки');
   const target = path.resolve(destination);
   await fsp.mkdir(target, { recursive: true });
-  for (const archive of archives) {
+  for (let index = 0; index < archives.length; index++) {
+    const archive = archives[index];
     await fsp.access(archive);
-    await runSevenZip(['x', path.resolve(archive), `-o${target}`, '-aos', '-y'], path.dirname(path.resolve(archive)));
+    const basePercent = index / archives.length * 100;
+    const spanPercent = 100 / archives.length;
+    await runSevenZip(['x', path.resolve(archive), `-o${target}`, '-aos', '-y'], path.dirname(path.resolve(archive)),
+      onProgress ? (percent, file) => onProgress(Math.min(index === archives.length - 1 ? 100 : 99, basePercent + percent * spanPercent / 100), file) : undefined);
   }
 }
 

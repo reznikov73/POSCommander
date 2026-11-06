@@ -19,6 +19,18 @@ class DialogManager {
   stack: StackItem[] = [];
 
   open(el: HTMLElement, opts: { onClose?: OnClose; escClosable?: boolean } = {}): DialogHandle {
+    el.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"], .search-results')) return;
+      const buttons = [...el.querySelectorAll<HTMLButtonElement>('.dlg-btn:not(:disabled)')];
+      if (buttons.length < 2) return;
+      event.preventDefault(); event.stopPropagation();
+      const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const forward = event.key === 'ArrowRight' || event.key === 'ArrowDown';
+      const next = current < 0 ? 0 : (current + (forward ? 1 : -1) + buttons.length) % buttons.length;
+      buttons[next].focus();
+    });
     overlayRoot().appendChild(el);
     const item = { el, onClose: opts.onClose ?? null, escClosable: opts.escClosable ?? true };
     this.stack.push(item);
@@ -241,9 +253,30 @@ export function archiveExtractDialog(defaultDest: string, summary: string): Prom
   });
 }
 
-export function archiveBusyDialog(title: string): DialogHandle {
-  const { root, body } = frame(title, '<div class="archive-busy"><span class="archive-spinner"></span><span>Подождите…</span></div>');
-  return dialogs.open(root, { escClosable: false });
+export interface ArchiveProgressUi extends DialogHandle {
+  update(percent: number, currentFile: string): void;
+}
+
+export function archiveBusyDialog(title: string): ArchiveProgressUi {
+  const { root, body } = frame(title, `
+    <div class="archive-busy"><span class="archive-spinner"></span><span class="archive-progress-label">Подготовка…</span></div>
+    <div class="dlg-bar"><div class="dlg-bar-fill"></div></div>
+    <div class="dlg-progress-info">0%</div>
+  `);
+  const fill = body.querySelector('.dlg-bar-fill') as HTMLElement;
+  const label = body.querySelector('.archive-progress-label') as HTMLElement;
+  const info = body.querySelector('.dlg-progress-info') as HTMLElement;
+  const handle = dialogs.open(root, { escClosable: false });
+  return {
+    close: () => handle.close(),
+    update(percent, currentFile) {
+      const bounded = Math.max(0, Math.min(100, Math.round(percent)));
+      fill.style.width = `${bounded}%`;
+      info.textContent = `${bounded}%`;
+      label.textContent = currentFile || (bounded >= 100 ? 'Завершение…' : 'Обработка архива…');
+      label.title = currentFile;
+    },
+  };
 }
 
 export function searchDialog(currentPath: string, driveRoot: string): Promise<string | null> {

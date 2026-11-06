@@ -46,6 +46,7 @@ let completionPrefix = '';
 let completionIndex = -1;
 let completionCurrent = '';
 let completionRequest = 0;
+let archiveProgressSequence = 0;
 
 // ---------- Инициализация ----------
 
@@ -353,8 +354,8 @@ function editCurrent(): void {
 
 async function resolveViewPath(filePath: string): Promise<string | null> {
   if (!filePath.startsWith('archive://')) return filePath;
-  const extracted = await runArchiveCommand('Извлечение файла для просмотра', async () => {
-    const result = await window.pos.extractArchiveFileForView(filePath);
+  const extracted = await runArchiveCommand('Извлечение файла для просмотра', async progressId => {
+    const result = await window.pos.extractArchiveFileForView(filePath, progressId);
     return result.error ? `!ERROR!${result.error}` : result.path ?? '!ERROR!Не удалось извлечь файл';
   });
   if (extracted.startsWith('!ERROR!')) {
@@ -380,9 +381,8 @@ function doPack(): void {
     const stem = choice.archivePath.replace(/\.(zip|7z|tar)$/i, '');
     const rawPath = stem + ext;
     const archivePath = sourcePanel.resolvePathInput(rawPath);
-    const busy = archiveBusyDialog('Создание архива');
-    const error = await window.pos.createArchive(srcs, archivePath, choice.format, sourcePanel.path).catch(e => String(e));
-    busy.close();
+    const error = await withArchiveProgress('Создание архива', progressId =>
+      window.pos.createArchive(srcs, archivePath, choice.format, sourcePanel.path, progressId));
     void sourcePanel.refresh(); void otherPanel().refresh();
     if (error) void messageDialog('Ошибка упаковки', escapeHtml(error));
   });
@@ -403,22 +403,21 @@ function doExtract(mode: 'select' | 'here' | 'folder' = 'select'): void {
     : Promise.resolve(mode === 'here' ? sourcePanel.path : '');
   void chooseDestination.then(async dest => {
     if (dest === null) return;
-    const busy = archiveBusyDialog('Распаковка архивов');
     let error = '';
-    try {
+    error = await withArchiveProgress('Распаковка архивов', async progressId => {
       if (mode === 'folder') {
         for (const archive of archives) {
           const folderName = basename(archive).replace(/\.(zip|7z|tar|gz|tgz|bz2|xz|wim|iso|cab|rar)$/i, '');
           const destination = joinPath(sourcePanel.path, folderName);
-          const itemError = await window.pos.extractArchives([archive], destination);
-          if (itemError) { error = itemError; break; }
+          const itemError = await window.pos.extractArchives([archive], destination, progressId);
+          if (itemError) return itemError;
         }
       } else {
         const destination = mode === 'here' ? sourcePanel.path : otherPanel().resolvePathInput(dest);
-        error = await window.pos.extractArchives(archives, destination);
+        return window.pos.extractArchives(archives, destination, progressId);
       }
-    } catch (e) { error = String(e); }
-    busy.close();
+      return '';
+    });
     void sourcePanel.refresh(); void otherPanel().refresh();
     if (error) void messageDialog('Ошибка распаковки', escapeHtml(error));
   });
@@ -549,11 +548,19 @@ function dropFiles(sourceIdx: 0 | 1, paths: string[], target: Panel, destination
   startOp(copy ? 'copy' : 'move', paths, destination);
 }
 
-async function runArchiveCommand(title: string, run: () => Promise<string>): Promise<string> {
+async function withArchiveProgress(title: string, run: (progressId: string) => Promise<string>): Promise<string> {
+  const progressId = `archive-${Date.now()}-${++archiveProgressSequence}`;
   const busy = archiveBusyDialog(title);
-  try { return await run(); }
+  const unsubscribe = window.pos.onArchiveProgress(event => {
+    if (event.progressId === progressId) busy.update(event.percent, event.currentFile);
+  });
+  try { return await run(progressId); }
   catch (error) { return String(error); }
-  finally { busy.close(); }
+  finally { unsubscribe(); busy.close(); }
+}
+
+async function runArchiveCommand(title: string, run: (progressId: string) => Promise<string>): Promise<string> {
+  return withArchiveProgress(title, run);
 }
 
 function onOpEvent(ev: OpEvent): void {
@@ -641,7 +648,7 @@ function doMkdir(): void {
       ? p.resolvePathInput(name)
       : joinPath(p.path, name);
     const create = full.startsWith('archive://')
-      ? runArchiveCommand('Создание папки в архиве', () => window.pos.createArchiveFolder(full))
+      ? runArchiveCommand('Создание папки в архиве', progressId => window.pos.createArchiveFolder(full, progressId))
       : window.pos.mkdir(full);
     void create.then(err => {
       if (err) void messageDialog('Ошибка создания папки', escapeHtml(err));
@@ -657,7 +664,7 @@ function doDelete(preselectPerm: boolean): void {
   void deleteDialog(src, preselectPerm, archiveEntries).then(answer => {
     if (src.every(p => p.startsWith('archive://'))) {
       if (answer !== 'perm') return;
-      void runArchiveCommand('Удаление файлов из архива', () => window.pos.deleteArchiveEntries(src)).then(err => {
+      void runArchiveCommand('Удаление файлов из архива', progressId => window.pos.deleteArchiveEntries(src, progressId)).then(err => {
         if (err) void messageDialog('Ошибка удаления из архива', escapeHtml(err));
         else void panel().refresh();
       });
@@ -673,7 +680,7 @@ function doRename(): void {
   void promptDialog('Переименование', 'Новое имя:', basename(cur)).then(newPath => {
     if (!newPath) return;
     const rename = cur.startsWith('archive://')
-      ? runArchiveCommand('Переименование в архиве', () => window.pos.renameArchiveEntry(cur, newPath))
+      ? runArchiveCommand('Переименование в архиве', progressId => window.pos.renameArchiveEntry(cur, newPath, progressId))
       : window.pos.rename(cur, joinPath(parentOf(cur), newPath));
     void rename.then(err => {
       if (err) void messageDialog('Ошибка переименования', escapeHtml(err));
