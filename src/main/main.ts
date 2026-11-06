@@ -8,7 +8,8 @@ import { startOperation, cancelOperation, resolveConflict, OpKind, ConflictAnswe
 import {
   createArchive, extractArchives, ArchiveFormat, listArchiveDirectory,
   parseArchivePath, extractArchiveEntries, deleteArchiveEntries, addFilesToArchive,
-  renameArchiveEntry, createArchiveFolder, extractArchiveFileForView,
+  renameArchiveEntry, createArchiveFolder, extractArchiveFileForView, stageArchiveEntries,
+  stageArchiveDirectory, addStagedDirectoryToArchive,
 } from './archives';
 
 let mainWindow: BrowserWindow | null = null;
@@ -192,6 +193,7 @@ ipcMain.handle('fs:statfs', (_e, p: string) => {
   const parsed = parseArchivePath(p);
   return fsservice.statFs(parsed ? path.dirname(parsed.archive) : p);
 });
+ipcMain.handle('fs:search', (_e, args: { root: string; query: string }) => fsservice.searchFiles(args.root, args.query));
 ipcMain.handle('fs:drives', () => fsservice.getDrives());
 ipcMain.handle('archive:create', (_e, args: { srcs: string[]; archivePath: string; format: ArchiveFormat; cwd: string }) =>
   createArchive(args.srcs, args.archivePath, args.format, args.cwd).then(() => '').catch((e: any) => e?.message ?? String(e)));
@@ -240,7 +242,54 @@ ipcMain.handle('shell:run', async (_e, command: string, cwd: string) => {
 
 // ---------------- IPC: операции ----------------
 
-ipcMain.handle('ops:start', (_e, args: { kind: OpKind; srcs: string[]; destDir: string }) => {
+ipcMain.handle('ops:start', async (_e, args: { kind: OpKind; srcs: string[]; destDir: string }) => {
+  const archiveSources = args.srcs.length > 0 && args.srcs.every(src => src.startsWith('archive://'));
+  const archiveDestination = args.destDir.startsWith('archive://');
+  if (archiveSources && archiveDestination) throw new Error('Прямое копирование между архивами не поддерживается. Сначала скопируйте элементы в обычную папку.');
+  if ((args.kind === 'copy' || args.kind === 'move') && args.srcs.length && args.srcs.every(src => src.startsWith('archive://'))) {
+    const staged = await stageArchiveEntries(args.srcs);
+    try {
+      return startOperation(args.kind, staged.paths, args.destDir, mainWindow, async result => {
+        try {
+          if (args.kind === 'move') {
+            if (result.cancelled || result.errors?.length || (result.skippedFiles ?? 0) > 0) {
+              result.errors = [...(result.errors ?? []), 'Исходные элементы оставлены в архиве: операция завершилась не полностью.'];
+            } else await deleteArchiveEntries(args.srcs);
+          }
+        } finally { await fsp.rm(staged.root, { recursive: true, force: true }); }
+      });
+    } catch (error) {
+      await fsp.rm(staged.root, { recursive: true, force: true });
+      throw error;
+    }
+  }
+  if (archiveDestination && (args.kind === 'copy' || args.kind === 'move')) {
+    const staged = await stageArchiveDirectory(args.destDir);
+    try {
+      return startOperation('copy', args.srcs, staged.path, mainWindow, async result => {
+        try {
+          if (result.cancelled || result.errors?.length) return;
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('op:progress', {
+              ...result, phase: 'progress', currentFile: 'Запись файлов в архив…',
+              filesDone: result.filesTotal, bytesDone: result.bytesTotal, bps: 0,
+            });
+          }
+          await addStagedDirectoryToArchive(staged.path, args.destDir);
+          if (args.kind === 'move') {
+            if ((result.skippedFiles ?? 0) > 0) {
+              result.errors = [...(result.errors ?? []), 'Исходные файлы оставлены: часть объектов была пропущена.'];
+            } else {
+              for (const src of args.srcs) await fsp.rm(src, { recursive: true, force: false });
+            }
+          }
+        } finally { await fsp.rm(staged.root, { recursive: true, force: true }); }
+      });
+    } catch (error) {
+      await fsp.rm(staged.root, { recursive: true, force: true });
+      throw error;
+    }
+  }
   return startOperation(args.kind, args.srcs, args.destDir, mainWindow);
 });
 ipcMain.on('ops:cancel', (_e, opId: number) => cancelOperation(opId));

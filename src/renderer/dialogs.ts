@@ -1,4 +1,4 @@
-import { fmtBytes, fmtDate, basename, displayPath } from './util.js';
+import { fmtBytes, fmtDate, basename, displayPath, parentOf } from './util.js';
 
 export type ConflictAnswer = 'overwrite' | 'skip' | 'overwriteAll' | 'skipAll' | 'cancel';
 
@@ -244,6 +244,69 @@ export function archiveExtractDialog(defaultDest: string, summary: string): Prom
 export function archiveBusyDialog(title: string): DialogHandle {
   const { root, body } = frame(title, '<div class="archive-busy"><span class="archive-spinner"></span><span>Подождите…</span></div>');
   return dialogs.open(root, { escClosable: false });
+}
+
+export function searchDialog(currentPath: string, driveRoot: string): Promise<string | null> {
+  return new Promise(resolve => {
+    const { root, body } = frame('Поиск файлов', `
+      <label class="dlg-label" for="search-query">Имя или часть имени:</label>
+      <input class="dlg-input" id="search-query" spellcheck="false" />
+      <label class="dlg-label search-scope-label" for="search-scope">Искать в:</label>
+      <select class="dlg-select" id="search-scope">
+        <option value="current">Текущей папке и подпапках</option>
+        <option value="drive">Всем диске</option>
+      </select>
+      <div class="search-message">Введите имя файла или папки и нажмите «Искать».</div>
+      <div class="search-results"></div>
+    `);
+    root.classList.add('search-overlay');
+    const input = body.querySelector('#search-query') as HTMLInputElement;
+    const scope = body.querySelector('#search-scope') as HTMLSelectElement;
+    const status = body.querySelector('.search-message') as HTMLElement;
+    const results = body.querySelector('.search-results') as HTMLElement;
+    let settled = false;
+    let request = 0;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      const item = dialogs.stack.find(entry => entry.el === root);
+      if (item) dialogs.closeItem(item);
+      resolve(value);
+    };
+    const runSearch = async () => {
+      const query = input.value.trim();
+      if (!query) { status.textContent = 'Введите часть имени для поиска.'; return; }
+      const thisRequest = ++request;
+      const searchRoot = scope.value === 'drive' ? driveRoot : currentPath;
+      results.replaceChildren();
+      status.textContent = `Поиск «${query}» в ${displayPath(searchRoot)}…`;
+      try {
+        const result = await window.pos.search(searchRoot, query);
+        if (settled || thisRequest !== request) return;
+        status.textContent = result.entries.length
+          ? `Найдено: ${result.entries.length}${result.truncated ? ' (показана первая часть результатов)' : ''}. Выберите результат для перехода.`
+          : 'Совпадений не найдено.';
+        for (const entry of result.entries) {
+          const button = document.createElement('button');
+          button.type = 'button'; button.className = 'search-result';
+          const name = document.createElement('span'); name.className = 'search-result-name'; name.textContent = `${entry.isDir ? '📁' : '📄'} ${entry.name}`;
+          const parent = document.createElement('span'); parent.className = 'search-result-path'; parent.textContent = displayPath(parentOf(entry.path));
+          button.append(name, parent);
+          button.addEventListener('click', () => finish(entry.path));
+          results.appendChild(button);
+        }
+      } catch (error) {
+        if (thisRequest === request) status.textContent = `Ошибка поиска: ${String(error)}`;
+      }
+    };
+    body.appendChild(buttonRow([
+      { label: 'Искать', primary: true, onClick: () => void runSearch() },
+      { label: 'Закрыть', onClick: () => finish(null) },
+    ]));
+    input.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); void runSearch(); } });
+    dialogs.open(root, { onClose: () => finish(null) });
+    setTimeout(() => { input.focus(); input.select(); }, 0);
+  });
 }
 
 // --------------------------------------------------------------

@@ -21,6 +21,43 @@ export interface DirListResult {
   error?: string;
 }
 
+export interface SearchResultEntry {
+  path: string;
+  name: string;
+  isDir: boolean;
+  size: number;
+  mtime: number;
+}
+
+export async function searchFiles(root: string, query: string, maxResults = 500): Promise<{ entries: SearchResultEntry[]; truncated: boolean }> {
+  const needle = query.trim().toLocaleLowerCase('ru');
+  if (!needle) return { entries: [], truncated: false };
+  const entries: SearchResultEntry[] = [];
+  const pending = [path.resolve(root)];
+  let visited = 0;
+  const maxDirectories = 100_000;
+  let truncated = false;
+  while (pending.length) {
+    if (++visited > maxDirectories) { truncated = true; break; }
+    const dir = pending.pop()!;
+    let items: fs.Dirent[];
+    try { items = await fsp.readdir(dir, { withFileTypes: true }); }
+    catch { continue; }
+    for (const item of items) {
+      const full = path.join(dir, item.name);
+      const isDir = item.isDirectory();
+      if (item.name.toLocaleLowerCase('ru').includes(needle)) {
+        let stat: fs.Stats | null = null;
+        try { stat = await fsp.stat(full); } catch { /* vanished or inaccessible */ }
+        entries.push({ path: full, name: item.name, isDir: isDir || !!stat?.isDirectory(), size: isDir ? 0 : Number(stat?.size ?? 0), mtime: stat?.mtimeMs ?? 0 });
+        if (entries.length >= maxResults) return { entries, truncated: true };
+      }
+      if (item.isDirectory()) pending.push(full);
+    }
+  }
+  return { entries, truncated };
+}
+
 /** Список файлов каталога; ошибки доступа возвращаются текстом, а не исключением */
 export async function listDir(dir: string): Promise<DirListResult> {
   try {

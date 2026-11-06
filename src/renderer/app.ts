@@ -1,10 +1,11 @@
 import { Panel } from './panel.js';
-import { fmtBytes, basename, joinPath, archiveRootPath, archivePathParts, displayPath } from './util.js';
+import { fmtBytes, basename, joinPath, archiveRootPath, archivePathParts, displayPath, parentOf } from './util.js';
 import { Drive, Entry } from './types.js';
 import {
   dialogs, promptDialog, copyMoveDialog, deleteDialog, progressDialog,
   conflictDialog, messageDialog, viewerDialog, ProgressUi,
   archiveCreateDialog, archiveExtractDialog, archiveBusyDialog,
+  searchDialog,
 } from './dialogs.js';
 
 type OpEvent = {
@@ -40,6 +41,11 @@ const COMMAND_HISTORY_KEY = 'poscommander.commandHistory';
 let commandHistory: string[] = [];
 let commandHistoryIndex = 0;
 let commandDraft = '';
+let completionValues: Array<{ value: string; kind: string }> = [];
+let completionPrefix = '';
+let completionIndex = -1;
+let completionCurrent = '';
+let completionRequest = 0;
 
 // ---------- Инициализация ----------
 
@@ -86,18 +92,30 @@ function init(): void {
       void completeCommand(command);
       return;
     }
-    if (ev.key === 'Escape') { command.value = ''; command.blur(); }
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+      if (completionValues.length) {
+        ev.preventDefault();
+        moveCommandSuggestion(command, ev.key === 'ArrowDown' ? 1 : -1);
+      }
+      return;
+    }
+    if (ev.key === 'Escape') {
+      if (!document.getElementById('command-suggestions')!.hidden) hideCommandSuggestions();
+      else { command.value = ''; command.blur(); }
+    }
     if (ev.ctrlKey && ev.key === 'ArrowUp') {
       ev.preventDefault();
       if (commandHistoryIndex === commandHistory.length) commandDraft = command.value;
       commandHistoryIndex = Math.max(0, commandHistoryIndex - 1);
       command.value = commandHistory[commandHistoryIndex] ?? '';
+      resetCommandCompletion(command.value);
       return;
     }
     if (ev.ctrlKey && ev.key === 'ArrowDown') {
       ev.preventDefault();
       commandHistoryIndex = Math.min(commandHistory.length, commandHistoryIndex + 1);
       command.value = commandHistoryIndex === commandHistory.length ? commandDraft : commandHistory[commandHistoryIndex] ?? '';
+      resetCommandCompletion(command.value);
       return;
     }
     if (ev.key === 'Enter') {
@@ -114,9 +132,19 @@ function init(): void {
       });
       command.value = '';
       command.blur();
+      completionPrefix = ''; completionCurrent = ''; completionIndex = -1; completionValues = [];
       renderCommandSuggestions();
     }
   });
+  command.addEventListener('input', () => {
+    completionPrefix = command.value.trim();
+    completionIndex = -1;
+    completionCurrent = '';
+    completionValues = [];
+    hideCommandSuggestions();
+    void loadCommandSuggestions(command, completionPrefix);
+  });
+  command.addEventListener('blur', () => setTimeout(hideCommandSuggestions, 120));
 }
 
 function readCommandHistory(): string[] {
@@ -134,22 +162,102 @@ function rememberCommand(value: string): void {
 }
 
 function renderCommandSuggestions(): void {
-  const list = document.getElementById('command-history')!;
-  list.replaceChildren(...commandHistory.map(value => {
-    const option = document.createElement('option'); option.value = value; return option;
-  }));
+  if (!completionPrefix) { hideCommandSuggestions(); return; }
+  renderCommandSuggestionList();
 }
 
 async function completeCommand(input: HTMLInputElement): Promise<void> {
   const value = input.value.trim();
   if (!value) return;
-  const prefix = value.toLocaleLowerCase('ru');
-  const historyMatch = commandHistory.find(item => item.toLocaleLowerCase('ru').startsWith(prefix));
-  if (historyMatch) { input.value = historyMatch; return; }
-  const result = await window.pos.list(panel().path);
-  if (result.error) return;
-  const match = result.entries.find(entry => entry.name.toLocaleLowerCase('ru').startsWith(prefix));
-  if (match) input.value = match.name;
+  if (value !== completionCurrent && value !== completionPrefix) {
+    completionPrefix = value;
+    completionIndex = -1;
+    completionCurrent = '';
+    await loadCommandSuggestions(input, value);
+  } else if (!completionValues.length || completionPrefix !== value && value !== completionCurrent) {
+    await loadCommandSuggestions(input, completionPrefix || value);
+  }
+  if (!completionValues.length) return;
+  completionIndex = (completionIndex + 1) % completionValues.length;
+  completionCurrent = completionValues[completionIndex].value;
+  input.value = completionCurrent;
+  renderCommandSuggestionList();
+}
+
+function resetCommandCompletion(value: string): void {
+  completionPrefix = value.trim();
+  completionCurrent = '';
+  completionIndex = -1;
+  void loadCommandSuggestions(document.getElementById('command-input') as HTMLInputElement, completionPrefix);
+}
+
+async function loadCommandSuggestions(input: HTMLInputElement, prefix: string): Promise<void> {
+  const request = ++completionRequest;
+  const lower = prefix.toLocaleLowerCase('ru');
+  if (!lower) { completionValues = []; hideCommandSuggestions(); return; }
+  const values: Array<{ value: string; kind: string }> = [];
+  const seen = new Set<string>();
+  for (const value of commandHistory) {
+    if (value.toLocaleLowerCase('ru').startsWith(lower) && !seen.has(value.toLocaleLowerCase('ru'))) {
+      values.push({ value, kind: 'История' }); seen.add(value.toLocaleLowerCase('ru'));
+    }
+  }
+  try {
+    const result = await window.pos.list(panel().path);
+    if (!result.error) {
+      const matches = result.entries
+        .filter(entry => entry.name.toLocaleLowerCase('ru').startsWith(lower))
+        .sort((a, b) => a.name.localeCompare(b.name, 'ru', { numeric: true, sensitivity: 'base' }));
+      for (const entry of matches) {
+        const value = entry.name + (entry.isDir ? '\\' : '');
+        const key = value.toLocaleLowerCase('ru');
+        if (!seen.has(key)) { values.push({ value, kind: entry.isDir ? 'Папка' : 'Файл' }); seen.add(key); }
+      }
+    }
+  } catch { /* список подсказок может быть недоступен */ }
+  if (request !== completionRequest) return;
+  completionValues = values.slice(0, 100);
+  if (input.value.trim() === prefix) completionIndex = -1;
+  renderCommandSuggestionList();
+}
+
+function renderCommandSuggestionList(): void {
+  const list = document.getElementById('command-suggestions');
+  if (!list) return;
+  list.replaceChildren();
+  if (!completionValues.length) { list.hidden = true; return; }
+  completionValues.forEach((item, index) => {
+    const option = document.createElement('button');
+    option.type = 'button';
+    option.className = 'command-suggestion' + (index === completionIndex ? ' active' : '');
+    option.setAttribute('role', 'option');
+    option.setAttribute('aria-selected', index === completionIndex ? 'true' : 'false');
+    const kind = document.createElement('span'); kind.className = 'suggestion-kind'; kind.textContent = item.kind;
+    const value = document.createElement('span'); value.className = 'suggestion-value'; value.textContent = item.value;
+    option.append(kind, value);
+    option.addEventListener('mousedown', ev => ev.preventDefault());
+    option.addEventListener('click', () => {
+      const input = document.getElementById('command-input') as HTMLInputElement;
+      completionIndex = index; completionCurrent = item.value; input.value = item.value; input.focus(); renderCommandSuggestionList();
+    });
+    list.appendChild(option);
+  });
+  list.hidden = false;
+}
+
+function moveCommandSuggestion(input: HTMLInputElement, delta: -1 | 1): void {
+  if (!completionValues.length) return;
+  completionIndex = completionIndex < 0
+    ? (delta > 0 ? 0 : completionValues.length - 1)
+    : (completionIndex + delta + completionValues.length) % completionValues.length;
+  completionCurrent = completionValues[completionIndex].value;
+  input.value = completionCurrent;
+  renderCommandSuggestionList();
+}
+
+function hideCommandSuggestions(): void {
+  const list = document.getElementById('command-suggestions');
+  if (list) list.hidden = true;
 }
 
 function readSavedView(): { paths: [string, string]; active: 0 | 1 } {
@@ -173,7 +281,7 @@ function buildChrome(): void {
   const menus: Array<[string, Array<[string, () => void]>]> = [
     ['Файл', [['Просмотр  F3', doView], ['Правка  F4', editCurrent], ['Копирование  F5', doCopy], ['Перемещение  F6', doMove], ['Создать каталог  F7', doMkdir], ['Удаление  F8', () => doDelete(false)], ['Упаковать  Alt+F5', doPack], ['Распаковать  Alt+F9', doExtract], ['Выход  Alt+F4', () => window.close()]]],
     ['Выделение', [['Выделить всё  Ctrl+A', () => panel().selectAll()], ['Снять выделение  Esc', () => panel().clearSelection()], ['Инвертировать  Ctrl+Num *', () => panel().invertSelection()]]],
-    ['Навигация', [['Назад  Alt+←', () => panel().goHistory(-1)], ['Вперёд  Alt+→', () => panel().goHistory(1)], ['На уровень выше  Backspace', () => panel().goUp()], ['Обновить  Ctrl+R', () => { void panel().refresh(); }], ['Поменять панели  Ctrl+U', swapPanels]]],
+    ['Навигация', [['Назад  Alt+←', () => panel().goHistory(-1)], ['Вперёд  Alt+→', () => panel().goHistory(1)], ['На уровень выше  Backspace', () => panel().goUp()], ['Поиск файлов  Ctrl+F', doSearch], ['Обновить  Ctrl+R', () => { void panel().refresh(); }], ['Поменять панели  Ctrl+U', swapPanels]]],
     ['Сеть', [['Список дисков  Alt+F1', () => void openDriveMenu(panel(0), panel(0).driveBtnEl())], ['Список дисков  Alt+F2', () => void openDriveMenu(panel(1), panel(1).driveBtnEl())]]],
     ['Вид', [['Сортировать по имени', () => sortActive('name')], ['Сортировать по размеру', () => sortActive('size')], ['Сортировать по дате', () => sortActive('date')]]],
     ['Вкладки', [['Новая вкладка', () => panel().newTab()]]],
@@ -198,7 +306,7 @@ function buildChrome(): void {
 
   const tools: Array<[string, string, () => void]> = [
     ['📂', 'На уровень выше', () => panel().goUp()], ['↻', 'Обновить', () => { void panel().refresh(); }],
-    ['🔍', 'Поиск по имени', () => { const input = document.querySelector(`#panel${app.active} .path-input`) as HTMLInputElement; input.focus(); }],
+    ['🔍', 'Поиск файлов (Ctrl+F)', doSearch],
     ['📦', 'Копировать', doCopy], ['➡', 'Переместить', doMove], ['🗑', 'Удалить', () => doDelete(false)],
     ['📁', 'Создать папку', doMkdir], ['✎', 'Переименовать', doRename], ['⇄', 'Поменять панели', swapPanels],
     ['🗜', 'Упаковать файлы (Alt+F5)', doPack], ['📦', 'Распаковать архив (Alt+F9)', doExtract],
@@ -380,8 +488,12 @@ function startOp(kind: 'copy' | 'move' | 'deletePerm' | 'trash', srcs: string[],
   app.progressUi = progressDialog(titles[kind] + '…', () => {
     if (app.progressOpId >= 0) window.pos.cancelOp(app.progressOpId);
   });
+  app.progressOpId = -1;
   void window.pos.startOp(kind, srcs, destDir).then(opId => {
     app.progressOpId = opId;
+  }).catch(error => {
+    app.progressUi?.close(); app.progressUi = null; app.progressOpId = -1;
+    void messageDialog('Ошибка операции', escapeHtml(String(error)));
   });
 }
 
@@ -444,15 +556,9 @@ function doCopy(): void {
       return;
     }
     if (destination.startsWith('archive://')) {
-      void runArchiveCommand('Добавление файлов в архив', () => window.pos.addArchiveEntries(src, destination)).then(err => {
-        if (err) void messageDialog('Ошибка добавления в архив', escapeHtml(err));
-        else { void panel().refresh(); void otherPanel().refresh(); }
-      });
+      startOp('copy', src, destination);
     } else if (src.every(p => p.startsWith('archive://'))) {
-      void runArchiveCommand('Извлечение файлов', () => window.pos.extractArchiveEntries(src, destination)).then(err => {
-        if (err) void messageDialog('Ошибка извлечения файлов', escapeHtml(err));
-        else { void panel().refresh(); void otherPanel().refresh(); }
-      });
+      startOp('copy', src, destination);
     } else startOp('copy', src, dest);
   });
 }
@@ -468,16 +574,9 @@ function doMove(): void {
       return;
     }
     if (destination.startsWith('archive://')) {
-      void runArchiveCommand('Добавление файлов в архив', () => window.pos.addArchiveEntries(src, destination)).then(err => {
-        if (err) void messageDialog('Ошибка добавления в архив', escapeHtml(err));
-        else startOp('deletePerm', src, '');
-      });
+      startOp('move', src, destination);
     } else if (src.every(p => p.startsWith('archive://'))) {
-      void runArchiveCommand('Извлечение файлов', () => window.pos.extractArchiveEntries(src, destination)).then(err => {
-        if (err) { void messageDialog('Ошибка извлечения файлов', escapeHtml(err)); return; }
-        void panel().refresh(); void otherPanel().refresh();
-        void messageDialog('Файлы извлечены', 'Исходные файлы оставлены в архиве. При совпадении имён существующие файлы назначения пропускаются.');
-      });
+      startOp('move', src, destination);
     } else startOp('move', src, dest);
   });
 }
@@ -528,6 +627,21 @@ function doRename(): void {
       if (err) void messageDialog('Ошибка переименования', escapeHtml(err));
       void p.refresh();
     });
+  });
+}
+
+function doSearch(): void {
+  const p = panel();
+  if (p.path.startsWith('archive://')) {
+    void messageDialog('Поиск файлов', 'Сначала выйдите из архива. Поиск выполняется в обычной папке или на диске.');
+    return;
+  }
+  const drive = p.drives.find(item => p.path.toLocaleLowerCase('ru').startsWith(item.root.toLocaleLowerCase('ru')));
+  const driveRoot = drive?.root ?? p.path;
+  void searchDialog(p.path, driveRoot).then(async found => {
+    if (!found) return;
+    const ok = await p.setPath(parentOf(found));
+    if (ok) p.selectEntryByName(basename(found));
   });
 }
 
@@ -641,6 +755,9 @@ function onKeyDown(ev: KeyboardEvent): void {
       case 'F2': case 'F3': case 'F4': case 'F5': case 'F6': case 'F7': case 'F8':
         return handleFKey(key, ev);
       case 'Tab': setActive((1 - app.active) as 0 | 1); return true;
+      case 'f': case 'F':
+        if (ev.ctrlKey) { doSearch(); return true; }
+        return false;
       case 'a': case 'A': case 'ф': case 'Ф':
         if (ev.ctrlKey) { p.selectAll(); return true; }
         return false;

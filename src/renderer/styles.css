@@ -80,6 +80,11 @@ html, body {
 .path-tab:hover .tab-close { display: inline-block; }
 .tab-close:hover { background: #d5d5d5; color: #111; }
 .tab-new { max-width: 28px; min-width: 25px; justify-content: center; padding: 0 5px; color: #444; }
+.path-tab.dragging { opacity: .45; }
+.path-tab.drag-over { box-shadow: inset 2px 0 #316ac5; }
+.tab-context-menu { position: fixed; z-index: 120; min-width: 225px; padding: 3px; border: 1px solid #888; background: #fafafa; box-shadow: 2px 3px 8px #0004; }
+.tab-context-menu button { display: block; width: 100%; padding: 5px 10px; border: 0; background: transparent; color: #222; font: inherit; text-align: left; white-space: nowrap; cursor: pointer; }
+.tab-context-menu button:hover { background: #c9dff5; }
 
 .panel-head {
   display: flex;
@@ -181,9 +186,15 @@ html, body {
 #midbar button { width: 25px; height: 23px; border: 1px solid transparent; background: transparent; font-size: 17px; line-height: 18px; color: #555; cursor: pointer; }
 #midbar button:hover { background: #dceafb; border-color: #8aaed5; }
 #midbar button.mid-separator { margin-bottom: 7px; }
-#commandbar { height: 25px; flex: 0 0 25px; display: flex; align-items: center; gap: 8px; padding: 2px 7px; color: #444; }
+#commandbar { position: relative; height: 25px; flex: 0 0 25px; display: flex; align-items: center; gap: 8px; padding: 2px 7px; color: #444; }
 #commandbar label { white-space: nowrap; }
 #command-input { flex: 1; min-width: 0; height: 22px; padding: 2px 5px; border: 1px solid #aaa; font: 12px Consolas, monospace; background: white; }
+#command-suggestions { position: absolute; z-index: 60; right: 7px; bottom: calc(100% - 2px); width: min(520px, 65%); max-height: 240px; overflow: auto; border: 1px solid #8a8a8a; background: #fff; box-shadow: 2px 3px 8px #0004; }
+#command-suggestions[hidden] { display: none; }
+.command-suggestion { display: flex; width: 100%; gap: 8px; border: 0; padding: 4px 7px; color: #222; background: #fff; font: 12px Consolas, monospace; text-align: left; cursor: pointer; }
+.command-suggestion:hover, .command-suggestion.active { background: #d9eafb; }
+.command-suggestion .suggestion-kind { flex: 0 0 62px; color: #777; font: 11px "Segoe UI", sans-serif; }
+.command-suggestion .suggestion-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 #statusbar > div {
   background: var(--head-bg);
@@ -275,6 +286,14 @@ html, body {
 }
 
 .dlg-wide { min-width: 760px; width: 80vw; }
+.search-overlay .dlg { width: min(760px, 88vw); }
+.search-scope-label { display: block; margin-top: 10px; }
+.search-message { margin-top: 10px; color: #555; font-size: 12px; }
+.search-results { max-height: min(42vh, 360px); margin-top: 6px; overflow: auto; border: 1px solid #c8c8c8; }
+.search-result { display: flex; width: 100%; gap: 12px; justify-content: space-between; padding: 4px 7px; border: 0; border-bottom: 1px solid #eee; background: #fff; color: #222; font: inherit; text-align: left; cursor: pointer; }
+.search-result:hover { background: #dceafb; }
+.search-result-name { flex: 0 0 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.search-result-path { min-width: 0; overflow: hidden; color: #666; text-overflow: ellipsis; white-space: nowrap; }
 
 .dlg-title {
   background: var(--accent);

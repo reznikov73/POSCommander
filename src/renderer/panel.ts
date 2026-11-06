@@ -357,10 +357,16 @@ export class Panel {
   }
 
   newTab(): void {
+    this.openTabInNew(this.path);
+  }
+
+  private openTabInNew(path: string): void {
     this.tabs.splice(this.activeTab + 1, 0, this.path);
     this.activeTab++;
+    this.tabs[this.activeTab] = path;
     this.saveTabs();
     this.renderTabs();
+    if (path !== this.path) void this.setPath(path, false);
   }
 
   private loadTabs(): void {
@@ -396,6 +402,49 @@ export class Panel {
   }
 
   closeActiveTab(): void { this.closeTab(this.activeTab); }
+
+  private closeOtherTabs(index: number): void {
+    const keep = this.tabs[index];
+    this.tabs = [keep];
+    this.activeTab = 0;
+    this.saveTabs(); this.renderTabs();
+    if (this.path !== keep) void this.setPath(keep, false);
+  }
+
+  private reorderTab(from: number, to: number): void {
+    if (from === to || from < 0 || to < 0 || from >= this.tabs.length || to >= this.tabs.length) return;
+    const [value] = this.tabs.splice(from, 1);
+    this.tabs.splice(to, 0, value);
+    if (this.activeTab === from) this.activeTab = to;
+    else if (from < this.activeTab && to >= this.activeTab) this.activeTab--;
+    else if (from > this.activeTab && to <= this.activeTab) this.activeTab++;
+    this.saveTabs(); this.renderTabs();
+  }
+
+  private showTabContextMenu(index: number, x: number, y: number): void {
+    document.querySelector('.tab-context-menu')?.remove();
+    const tabPath = this.tabs[index];
+    const menu = document.createElement('div');
+    menu.className = 'tab-context-menu';
+    const actions: Array<[string, () => void]> = [
+      ['Новая вкладка', () => this.openTabInNew(this.path)],
+      ['Открыть эту папку в новой вкладке', () => this.openTabInNew(tabPath)],
+      ['Закрыть вкладку', () => this.closeTab(index)],
+      ['Закрыть остальные вкладки', () => this.closeOtherTabs(index)],
+    ];
+    for (const [label, action] of actions) {
+      const item = document.createElement('button'); item.type = 'button'; item.textContent = label;
+      item.addEventListener('click', () => { menu.remove(); action(); });
+      menu.appendChild(item);
+    }
+    menu.style.left = `${Math.min(x, window.innerWidth - 240)}px`;
+    menu.style.top = `${Math.min(y, window.innerHeight - 150)}px`;
+    document.body.appendChild(menu);
+    const close = (event: MouseEvent) => {
+      if (!menu.contains(event.target as Node)) { menu.remove(); document.removeEventListener('mousedown', close, true); }
+    };
+    document.addEventListener('mousedown', close, true);
+  }
 
   private async loadFree(): Promise<void> {
     const r = await window.pos.statfs(this.path);
@@ -455,6 +504,23 @@ export class Panel {
         });
       });
       b.addEventListener('auxclick', ev => { if (ev.button === 1) this.closeTab(i); });
+      b.addEventListener('contextmenu', ev => {
+        ev.preventDefault(); this.hooks.activate(this); this.showTabContextMenu(i, ev.clientX, ev.clientY);
+      });
+      b.draggable = true;
+      b.addEventListener('dragstart', ev => {
+        ev.dataTransfer?.setData('text/plain', String(i));
+        if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move';
+        b.classList.add('dragging');
+      });
+      b.addEventListener('dragend', () => b.classList.remove('dragging'));
+      b.addEventListener('dragover', ev => { ev.preventDefault(); b.classList.add('drag-over'); });
+      b.addEventListener('dragleave', () => b.classList.remove('drag-over'));
+      b.addEventListener('drop', ev => {
+        ev.preventDefault(); b.classList.remove('drag-over');
+        const from = Number(ev.dataTransfer?.getData('text/plain'));
+        if (Number.isInteger(from)) this.reorderTab(from, i);
+      });
       this.tabStrip.appendChild(b);
     });
     const add = document.createElement('button');
@@ -698,6 +764,19 @@ export class Panel {
     const cur = this.visible()[this.cursor];
     if (!cur || cur.name.startsWith('..')) return null;
     return joinPath(this.path, cur.name);
+  }
+
+  selectEntryByName(name: string): boolean {
+    let index = this.visible().findIndex(entry => entry.name.toLocaleLowerCase('ru') === name.toLocaleLowerCase('ru'));
+    if (index < 0 && this.fileMask !== '*.*') {
+      this.fileMask = '*.*'; this.maskSelect.value = '*.*'; this.sortEntries();
+      this.pathInput.value = this.pathInputText();
+      index = this.visible().findIndex(entry => entry.name.toLocaleLowerCase('ru') === name.toLocaleLowerCase('ru'));
+    }
+    if (index < 0) return false;
+    this.sel.clear(); this.cursor = index; this.anchor = index;
+    this.render(); this.scrollCursorIntoView(); this.hooks.statusChanged();
+    return true;
   }
 
   /** Кнопка выбора диска (для позиционирования меню) */

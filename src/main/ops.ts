@@ -19,6 +19,7 @@ export interface OpProgressData {
   bytesTotal: number;
   bps: number; // байт/сек
   cancelled?: boolean;
+  skippedFiles?: number;
   errors?: string[];
 }
 
@@ -72,6 +73,7 @@ export class FileOperation {
   private skipAll = false;
   private errors: string[] = [];
   private filesDone = 0;
+  private skippedFiles = 0;
   private bytesDone = 0;
   private bytesTotal = 0;
   private filesTotal = 0;
@@ -84,6 +86,7 @@ export class FileOperation {
     private srcs: string[],
     private destDir: string,
     private win: BrowserWindow | null,
+    private onDone?: (result: OpProgressData) => Promise<void> | void,
   ) {}
 
   cancel(): void { this.cancelled = true; }
@@ -303,7 +306,7 @@ export class FileOperation {
         if (t.isDir) continue;
         const verdict = await this.checkConflict(t);
         if (verdict === 'stop') break;
-        if (verdict === 'skip') { this.filesDone++; continue; }
+        if (verdict === 'skip') { this.filesDone++; this.skippedFiles++; continue; }
         try {
           await this.doFileTask(t);
         } catch (e: any) {
@@ -338,19 +341,30 @@ export class FileOperation {
     } finally {
       running.delete(this.opId);
       this.emitProgress(true);
-      send(this.win, {
+      const result: OpProgressData = {
         opId: this.opId, kind: this.kind, phase: 'done',
         currentFile: '', filesDone: this.filesDone, filesTotal: this.filesTotal,
         bytesDone: this.bytesDone, bytesTotal: this.bytesTotal, bps: 0,
         cancelled: this.cancelled,
+        skippedFiles: this.skippedFiles,
         errors: this.errors.slice(0, 50),
-      }, 'op:done');
+      };
+      try { await this.onDone?.(result); }
+      catch (e: any) { this.errors.push(`Завершение операции: ${describeFsError(e)}`); }
+      result.errors = this.errors.slice(0, 50);
+      send(this.win, result, 'op:done');
     }
   }
 }
 
-export function startOperation(kind: OpKind, srcs: string[], destDir: string, win: BrowserWindow | null): number {
-  const op = new FileOperation(kind, srcs, destDir, win);
+export function startOperation(
+  kind: OpKind,
+  srcs: string[],
+  destDir: string,
+  win: BrowserWindow | null,
+  onDone?: (result: OpProgressData) => Promise<void> | void,
+): number {
+  const op = new FileOperation(kind, srcs, destDir, win, onDone);
   // запускаем в фоне, ID возвращаем сразу
   op.run().catch(() => { /* ошибки уже собраны внутри */ });
   return op.opId;

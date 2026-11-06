@@ -14,6 +14,7 @@ export interface PosApi {
   createArchiveFolder(path: string): Promise<string>;
   extractArchiveFileForView(path: string): Promise<{ path?: string; error?: string }>;
   statfs(path: string): Promise<{ total: number; free: number; error?: string }>;
+  search(root: string, query: string): Promise<{ entries: Array<{ path: string; name: string; isDir: boolean; size: number; mtime: number }>; truncated: boolean }>;
   drives(): Promise<PosDrive[]>;
   mkdir(path: string): Promise<string>;
   rename(oldP: string, newP: string): Promise<string>;
@@ -44,6 +45,7 @@ const api: PosApi = {
   createArchiveFolder: (p) => ipcRenderer.invoke('archive:createFolder', p),
   extractArchiveFileForView: (p) => ipcRenderer.invoke('archive:extractForView', p),
   statfs: (p) => ipcRenderer.invoke('fs:statfs', p),
+  search: (root, query) => ipcRenderer.invoke('fs:search', { root, query }),
   drives: () => ipcRenderer.invoke('fs:drives'),
   mkdir: (p) => ipcRenderer.invoke('fs:mkdir', p),
   rename: (o, n) => ipcRenderer.invoke('fs:rename', o, n),

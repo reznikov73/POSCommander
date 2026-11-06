@@ -124,6 +124,78 @@ export async function extractArchiveEntries(virtualPaths: string[], destination:
   } finally { await fsp.rm(tempRoot, { recursive: true, force: true }); }
 }
 
+export interface StagedArchiveEntries { root: string; paths: string[] }
+
+export interface StagedArchiveDirectory { root: string; path: string }
+
+export async function stageArchiveDirectory(virtualDestination: string): Promise<StagedArchiveDirectory> {
+  const parsed = parseArchivePath(virtualDestination);
+  if (!parsed) throw new Error('Некорректный путь назначения внутри архива');
+  const prefix = safeInner(parsed.inner);
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'poscommander-archive-dest-'));
+  try {
+    const extractedRoot = path.join(root, 'contents');
+    await fsp.mkdir(extractedRoot);
+    const args = ['x', path.resolve(parsed.archive), `-o${extractedRoot}`, '-y', '-sccUTF-8'];
+    if (prefix) args.push('--', prefix);
+    await runSevenZip(args, path.dirname(path.resolve(parsed.archive)));
+    const target = prefix ? path.join(extractedRoot, ...prefix.split('/')) : extractedRoot;
+    await fsp.mkdir(target, { recursive: true });
+    return { root, path: target };
+  } catch (error) {
+    await fsp.rm(root, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
+export async function addStagedDirectoryToArchive(stagedDirectory: string, virtualDestination: string): Promise<void> {
+  const parsed = parseArchivePath(virtualDestination);
+  if (!parsed) throw new Error('Некорректный путь назначения внутри архива');
+  const args = ['a', path.resolve(parsed.archive), '-mx=5', '-r', '-sccUTF-8'];
+  const prefix = safeInner(parsed.inner);
+  if (prefix) args.push(`-ap${prefix}/`);
+  args.push('--', '*');
+  await runSevenZip(args, stagedDirectory);
+}
+
+/** Extract selected archive members to isolated temporary files for the normal operation engine. */
+export async function stageArchiveEntries(virtualPaths: string[]): Promise<StagedArchiveEntries> {
+  if (!virtualPaths.length) throw new Error('Не выбраны файлы в архиве');
+  const first = parseArchivePath(virtualPaths[0]);
+  if (!first) throw new Error('Некорректный путь внутри архива');
+  const archive = path.resolve(first.archive);
+  const entries = virtualPaths.map(value => {
+    const parsed = parseArchivePath(value);
+    if (!parsed || path.resolve(parsed.archive).toLowerCase() !== archive.toLowerCase()) throw new Error('Выбраны файлы из разных архивов');
+    const inner = safeInner(parsed.inner);
+    if (!inner) throw new Error('Нельзя копировать корень архива как файл');
+    return inner;
+  });
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'poscommander-archive-op-'));
+  try {
+    const extractedRoot = path.join(root, 'contents');
+    const selectedRoot = path.join(root, 'selected');
+    await fsp.mkdir(extractedRoot);
+    await fsp.mkdir(selectedRoot);
+    await runSevenZip(['x', archive, `-o${extractedRoot}`, '-y', '-sccUTF-8', '--', ...entries], path.dirname(archive));
+    const paths: string[] = [];
+    for (let i = 0; i < entries.length; i++) {
+      const inner = entries[i];
+      const source = path.join(extractedRoot, ...inner.split('/'));
+      const destination = path.join(selectedRoot, String(i), path.posix.basename(inner));
+      await fsp.mkdir(path.dirname(destination), { recursive: true });
+      const stat = await fsp.lstat(source);
+      if (stat.isDirectory()) await fsp.cp(source, destination, { recursive: true, force: false, errorOnExist: true });
+      else await fsp.copyFile(source, destination, fsConstants.COPYFILE_EXCL);
+      paths.push(destination);
+    }
+    return { root, paths };
+  } catch (error) {
+    await fsp.rm(root, { recursive: true, force: true }).catch(() => {});
+    throw error;
+  }
+}
+
 export async function extractArchiveFileForView(virtualPath: string): Promise<string> {
   const parsed = parseArchivePath(virtualPath);
   if (!parsed) throw new Error('Некорректный путь внутри архива');

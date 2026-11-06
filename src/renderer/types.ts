@@ -30,6 +30,7 @@ export interface PosApi {
   createArchiveFolder(path: string): Promise<string>;
   extractArchiveFileForView(path: string): Promise<{ path?: string; error?: string }>;
   statfs(path: string): Promise<{ total: number; free: number; error?: string }>;
+  search(root: string, query: string): Promise<{ entries: Array<{ path: string; name: string; isDir: boolean; size: number; mtime: number }>; truncated: boolean }>;
   drives(): Promise<Drive[]>;
   mkdir(path: string): Promise<string>;
   rename(oldP: string, newP: string): Promise<string>;
