@@ -150,6 +150,13 @@ export function copyMoveDialog(kind: 'copy' | 'move', defaultDest: string, summa
       if (item) dialogs.closeItem(item);
       resolve(val);
     };
+    body.appendChild(buttonRow([
+      { label: kind === 'copy' ? 'Копировать' : 'Переместить', primary: true, onClick: () => {
+        const value = input.value.trim();
+        if (value) finish(value);
+      } },
+      { label: 'Отмена', onClick: () => finish(null) },
+    ]));
     root.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
